@@ -4,7 +4,7 @@ from pydantic import JsonValue
 
 from ._errors import PermissionDeniedError, StepFailedError
 from ._policy import Decision, Policy
-from ._records import StepAttempt
+from ._records import ApprovalAnswer, StepAttempt
 from ._serde import ErrorDetails
 from ._step import step_failed
 
@@ -12,17 +12,25 @@ AUTHORIZATION_KEY = "cuaderna.authorization"
 
 
 def authorization_annotation(
-    decision: Decision, policy: Policy, actor: str | None
+    decision: Decision,
+    policy: Policy,
+    actor: str | None,
+    verdict: str,
+    reason: str,
+    answer: ApprovalAnswer | None = None,
 ) -> dict[str, JsonValue]:
+    approval: dict[str, JsonValue] | None = None
+    if answer is not None:
+        approval = {"by": answer.by, "at": answer.at.isoformat(), "note": answer.note}
     return {
-        "decision": "allow" if decision.effect == "allow" else "deny",
+        "decision": verdict,
         "effect": decision.effect,
-        "reason": decision.reason,
+        "reason": reason,
         "policy": policy.id,
         "policy_hash": policy.content_hash,
         "rules": list(decision.rules),
         "actor": actor,
-        "approval": None,
+        "approval": approval,
     }
 
 
