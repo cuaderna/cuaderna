@@ -1,3 +1,4 @@
+from . import usage
 from ._engine import Engine
 from ._errors import (
     CuadernaError,
@@ -51,4 +52,5 @@ __all__ = [
     "random",
     "run",
     "step",
+    "usage",
 ]
