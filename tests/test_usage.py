@@ -156,3 +156,188 @@ def test_an_ollama_reply_cut_short_has_no_token_counts() -> None:
         "gen_ai.response.model": "qwen3:8b",
         "provider.usage": {"model": "qwen3:8b", "done": False},
     }
+
+
+def openai_response(usage: dict[str, Any], **extra: object) -> dict[str, Any]:
+    return {
+        "id": "resp_01",
+        "object": "response",
+        "model": "gpt-5.4-mini-2026-03-17",
+        "status": "completed",
+        "output": [],
+        "usage": usage,
+        **extra,
+    }
+
+
+def test_openai_cached_and_written_tokens_are_parts_of_the_input() -> None:
+    usage = {
+        "input_tokens": 12_000,
+        "input_tokens_details": {
+            "cached_tokens": 9_000,
+            "cache_write_tokens": 2_500,
+            "cache_write_tokens_details": {"ttl_30m_tokens": 500, "ttl_12h_tokens": 2_000},
+        },
+        "output_tokens": 800,
+        "output_tokens_details": {"reasoning_tokens": 600},
+        "total_tokens": 12_800,
+    }
+
+    facts = cuaderna.usage.from_openai_responses(
+        openai_response(usage), requested_model="gpt-5.4-mini"
+    )
+
+    assert facts == {
+        "gen_ai.provider.name": "openai",
+        "gen_ai.request.model": "gpt-5.4-mini",
+        "gen_ai.response.model": "gpt-5.4-mini-2026-03-17",
+        "gen_ai.response.id": "resp_01",
+        "gen_ai.response.finish_reasons": ["completed"],
+        "provider.usage": usage,
+        "gen_ai.usage.input_tokens": 12_000,
+        "gen_ai.usage.output_tokens": 800,
+        "gen_ai.usage.cache_read.input_tokens": 9_000,
+        "gen_ai.usage.cache_write.input_tokens": 2_500,
+        "gen_ai.usage.reasoning.output_tokens": 600,
+        "cuaderna.usage.cache_write_by_ttl": {"30m": 500, "12h": 2_000},
+    }
+
+
+def test_openai_cache_writes_without_a_breakdown_count_as_thirty_minutes() -> None:
+    usage = {
+        "input_tokens": 3_000,
+        "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 2_500},
+        "output_tokens": 10,
+        "output_tokens_details": {"reasoning_tokens": 0},
+    }
+
+    facts = cuaderna.usage.from_openai_responses(
+        openai_response(usage), requested_model="gpt-5.4-mini"
+    )
+
+    assert facts["cuaderna.usage.cache_write_by_ttl"] == {"30m": 2_500}
+
+
+def test_the_openai_tier_recorded_is_the_one_that_served_the_request() -> None:
+    usage = {"input_tokens": 100, "output_tokens": 10}
+    response = openai_response(
+        usage,
+        service_tier="default",
+        tool_usage={"web_search": {"num_requests": 2}},
+    )
+
+    facts = cuaderna.usage.from_openai_responses(response, requested_model="gpt-5.4-mini")
+
+    assert facts["cuaderna.usage.conditions"] == {"service_tier": "default"}
+    assert facts["cuaderna.usage.requests"] == {"web_search": 2}
+
+
+def test_an_openai_response_cut_short_says_why() -> None:
+    usage = {"input_tokens": 100, "output_tokens": 4_096}
+    response = openai_response(
+        usage, status="incomplete", incomplete_details={"reason": "max_output_tokens"}
+    )
+
+    facts = cuaderna.usage.from_openai_responses(response, requested_model="gpt-5.4-mini")
+
+    assert facts["gen_ai.response.finish_reasons"] == ["max_output_tokens"]
+
+
+def test_an_openai_response_without_usage_has_no_token_counts() -> None:
+    response = {"id": "resp_01", "model": "gpt-5.4-mini-2026-03-17", "status": "in_progress"}
+
+    facts = cuaderna.usage.from_openai_responses(response, requested_model="gpt-5.4-mini")
+
+    assert facts == {
+        "gen_ai.provider.name": "openai",
+        "gen_ai.request.model": "gpt-5.4-mini",
+        "gen_ai.response.model": "gpt-5.4-mini-2026-03-17",
+        "gen_ai.response.id": "resp_01",
+        "gen_ai.response.finish_reasons": ["in_progress"],
+    }
+
+
+def test_an_openai_usage_that_is_not_a_count_is_refused() -> None:
+    usage = {"input_tokens": "many", "output_tokens": 40}
+
+    with pytest.raises(ValidationError):
+        cuaderna.usage.from_openai_responses(openai_response(usage), requested_model="gpt-5.4-mini")
+
+
+def chat_completion(usage: dict[str, Any], **extra: object) -> dict[str, Any]:
+    return {
+        "id": "chatcmpl-01",
+        "object": "chat.completion",
+        "model": "gpt-5.4-mini-2026-03-17",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "hello"},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": usage,
+        **extra,
+    }
+
+
+def test_a_chat_completion_counts_cache_and_reasoning_as_parts() -> None:
+    usage = {
+        "prompt_tokens": 12_000,
+        "completion_tokens": 800,
+        "total_tokens": 12_800,
+        "prompt_tokens_details": {"cached_tokens": 9_000, "cache_write_tokens": 2_500},
+        "completion_tokens_details": {"reasoning_tokens": 600},
+    }
+
+    facts = cuaderna.usage.from_openai_chat(
+        chat_completion(usage, service_tier="flex"), requested_model="gpt-5.4-mini"
+    )
+
+    assert facts == {
+        "gen_ai.provider.name": "openai",
+        "gen_ai.request.model": "gpt-5.4-mini",
+        "gen_ai.response.model": "gpt-5.4-mini-2026-03-17",
+        "gen_ai.response.id": "chatcmpl-01",
+        "gen_ai.response.finish_reasons": ["stop"],
+        "provider.usage": usage,
+        "gen_ai.usage.input_tokens": 12_000,
+        "gen_ai.usage.output_tokens": 800,
+        "gen_ai.usage.cache_read.input_tokens": 9_000,
+        "gen_ai.usage.cache_write.input_tokens": 2_500,
+        "gen_ai.usage.reasoning.output_tokens": 600,
+        "cuaderna.usage.cache_write_by_ttl": {"30m": 2_500},
+        "cuaderna.usage.conditions": {"service_tier": "flex"},
+    }
+
+
+def test_a_chat_completion_from_another_provider_carries_its_name() -> None:
+    usage = {
+        "prompt_tokens": 120,
+        "completion_tokens": 40,
+        "prompt_tokens_details": {"cached_tokens": None},
+        "cost": 0.00012,
+    }
+
+    facts = cuaderna.usage.from_openai_chat(
+        chat_completion(usage), requested_model="qwen/qwen3", provider="openrouter"
+    )
+
+    assert facts["gen_ai.provider.name"] == "openrouter"
+    assert facts["gen_ai.usage.input_tokens"] == 120
+    assert facts["gen_ai.usage.cache_read.input_tokens"] == 0
+    assert "gen_ai.usage.reasoning.output_tokens" not in facts
+    assert facts["provider.usage"] == usage
+
+
+def test_a_chat_completion_without_usage_has_no_token_counts() -> None:
+    response = {"id": "chatcmpl-01", "model": "gpt-5.4-mini-2026-03-17"}
+
+    facts = cuaderna.usage.from_openai_chat(response, requested_model="gpt-5.4-mini")
+
+    assert facts == {
+        "gen_ai.provider.name": "openai",
+        "gen_ai.request.model": "gpt-5.4-mini",
+        "gen_ai.response.model": "gpt-5.4-mini-2026-03-17",
+        "gen_ai.response.id": "chatcmpl-01",
+    }
