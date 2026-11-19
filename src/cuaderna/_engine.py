@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -19,15 +20,25 @@ _LONGEST_CLAIM_WAIT_SECONDS = 1.0
 
 
 class Engine:
-    def __init__(self, path: str | Path, *, lease_seconds: float = 60.0) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        lease_seconds: float = 60.0,
+        claim_timeout_seconds: float | None = None,
+    ) -> None:
         self._storage: Storage = SqliteStorage(path)
         self._owner = uuid4().hex
         self._lease_seconds = lease_seconds
+        self._claim_timeout_seconds = claim_timeout_seconds
 
     async def execute[**P, R](
         self, run_id: str, run: RunDefinition[P, R], /, *args: P.args, **kwargs: P.kwargs
     ) -> R:
         input_json = run.codec.dump_arguments(args, kwargs)
+        give_up_at = None
+        if self._claim_timeout_seconds is not None:
+            give_up_at = time.monotonic() + self._claim_timeout_seconds
         lease = None
         while lease is None:
             record = await self._storage.create_run(run_id, run.name, input_json, run.code_version)
@@ -47,7 +58,16 @@ class Engine:
                 )
             lease = await self._storage.claim_run(run_id, self._owner, self._lease_seconds)
             if lease is None:
-                await asyncio.sleep(min(self._lease_seconds / 3, _LONGEST_CLAIM_WAIT_SECONDS))
+                pause = min(self._lease_seconds / 3, _LONGEST_CLAIM_WAIT_SECONDS)
+                if give_up_at is not None:
+                    remaining = give_up_at - time.monotonic()
+                    if remaining <= 0:
+                        raise RunNotAvailableError(
+                            f"run {run_id!r} is still held by another worker "
+                            f"after {self._claim_timeout_seconds} seconds"
+                        )
+                    pause = min(pause, remaining)
+                await asyncio.sleep(pause)
         heartbeat = asyncio.create_task(self._keep_lease(lease))
         try:
             return await self._drive(run, lease, *args, **kwargs)
