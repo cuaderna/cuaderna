@@ -36,7 +36,7 @@ class Codec[R]:
             for name, value in bound.arguments.items()
             if name in self.parameters
         }
-        return json.dumps(plain, sort_keys=True, separators=(",", ":"))
+        return canonical_json(plain)
 
     def load_arguments(self, arguments_json: str) -> inspect.BoundArguments:
         plain: dict[str, object] = json.loads(arguments_json)
@@ -82,6 +82,10 @@ def receiver_of(signature: inspect.Signature) -> str | None:
     if first.annotation is not inspect.Parameter.empty:
         return None
     return first.name
+
+
+def canonical_json(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
 def hash_arguments(args_json: str) -> str:

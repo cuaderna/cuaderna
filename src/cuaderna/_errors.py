@@ -59,5 +59,9 @@ class ReplayDivergedError(CuadernaError):
     pass
 
 
+class RunFileError(CuadernaError):
+    pass
+
+
 class TerminalError(CuadernaError):
     pass
