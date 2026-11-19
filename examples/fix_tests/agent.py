@@ -5,16 +5,18 @@ import shutil
 import subprocess
 import sys
 import urllib.request
+from functools import partial
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 
 import cuaderna
 
 _SAMPLE = Path(__file__).parent / "sample"
 _MODEL_URL = "http://localhost:11434/api/chat"
 _LEASE_SECONDS = 5.0
+_PUBLISHED_WORKDIR = "/tmp/fix-tests"
 _INSTRUCTIONS = (
     "You fix failing Python tests. You get the source files and the pytest output. "
     "Answer with the path of one source file and its complete corrected content. "
@@ -127,16 +129,33 @@ def _model_call_facts(requested_model: str, reply: dict[str, Any]) -> dict[str, 
     return facts
 
 
-async def _main(run_id: str, workdir: Path, model: str, max_rounds: int) -> None:
+async def _main(
+    run_id: str, workdir: Path, model: str, max_rounds: int, export: Path | None
+) -> None:
     repo = workdir / "repo"
     if not repo.exists():
         shutil.copytree(_SAMPLE, repo)
     engine = cuaderna.Engine(workdir / "journal.db", lease_seconds=_LEASE_SECONDS)
     try:
         summary = await engine.execute(run_id, fix_tests, str(repo), model, max_rounds)
+        if export is not None:
+            await engine.export_run(run_id, export, redact=partial(_hide_local_paths, workdir))
     finally:
         await engine.close()
     print(f"fixed: {summary.fixed}, rounds: {summary.rounds}")
+
+
+def _hide_local_paths(workdir: Path, _field: str, value: JsonValue) -> JsonValue:
+    text = json.dumps(value)
+    replacements = (
+        (workdir / "repo", f"{_PUBLISHED_WORKDIR}/repo"),
+        (workdir, _PUBLISHED_WORKDIR),
+        (Path(sys.prefix), "<venv>"),
+        (Path(sys.base_prefix), "<python>"),
+    )
+    for local_path, published_path in replacements:
+        text = text.replace(json.dumps(str(local_path))[1:-1], published_path)
+    return json.loads(text)
 
 
 if __name__ == "__main__":
@@ -145,5 +164,14 @@ if __name__ == "__main__":
     parser.add_argument("--run-id", default="fix-tests")
     parser.add_argument("--model", default="gpt-oss:20b")
     parser.add_argument("--max-rounds", type=int, default=5)
+    parser.add_argument("--export", type=Path, help="write the finished run to this file")
     arguments = parser.parse_args()
-    asyncio.run(_main(arguments.run_id, arguments.workdir, arguments.model, arguments.max_rounds))
+    asyncio.run(
+        _main(
+            arguments.run_id,
+            arguments.workdir,
+            arguments.model,
+            arguments.max_rounds,
+            arguments.export,
+        )
+    )
