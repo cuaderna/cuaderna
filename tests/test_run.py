@@ -92,6 +92,37 @@ async def test_a_second_worker_waits_for_the_first_and_gets_the_same_result(
     assert executions == [1]
 
 
+async def test_a_worker_with_a_claim_timeout_gives_up_on_a_held_run(
+    engine: Engine, journal_path: Path
+) -> None:
+    holder = asyncio.create_task(engine.execute("run", wait_forever))
+    await asyncio.sleep(0.05)
+    impatient = Engine(journal_path, claim_timeout_seconds=0.2)
+    hurried = Engine(journal_path, claim_timeout_seconds=0)
+    try:
+        with pytest.raises(RunNotAvailableError, match="still held"):
+            await asyncio.wait_for(impatient.execute("run", wait_forever), timeout=5)
+        with pytest.raises(RunNotAvailableError, match="still held"):
+            await asyncio.wait_for(hurried.execute("run", wait_forever), timeout=5)
+    finally:
+        await impatient.close()
+        await hurried.close()
+        holder.cancel()
+        await asyncio.gather(holder, return_exceptions=True)
+
+
+async def test_a_claim_timeout_does_not_stop_a_run_that_is_free(journal_path: Path) -> None:
+    @cuaderna.run
+    async def answer() -> int:
+        return 42
+
+    hurried = Engine(journal_path, claim_timeout_seconds=0)
+    try:
+        assert await hurried.execute("run", answer) == 42
+    finally:
+        await hurried.close()
+
+
 async def test_a_cancelled_run_stays_unfinished_and_gives_up_its_lease(
     engine: Engine, journal: Storage
 ) -> None:
