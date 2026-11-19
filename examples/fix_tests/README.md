@@ -45,6 +45,18 @@ The six steps already recorded were not executed again; their results came from 
 
 Running the command once more after it finished returns the stored result without executing anything.
 
+## Export the run
+
+Add `--export run.json` to write the finished run as one file:
+
+```
+uv run python examples/fix_tests/agent.py /tmp/fix-tests --export run.json
+```
+
+The directory given on the command line is replaced by `/tmp/fix-tests` everywhere in the file, and the paths of the virtual environment and of the Python installation, which show up in pytest tracebacks, by `<venv>` and `<python>`. Everything else is there in plain text: the sources, the pytest output, what the model answered.
+
+[site/sample-run.json](../../site/sample-run.json) was written this way, from a run killed during its second model call and resumed. `tests/test_sample_run.py` imports it and replays it against this agent, with no model and no repo.
+
 ## What to look at in the code
 
 - Reading the sources is a step because it is input that can change between executions, so its result is recorded rather than recomputed.
