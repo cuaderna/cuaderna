@@ -51,5 +51,9 @@ class RunMismatchError(CuadernaError):
     pass
 
 
+class RunNotFoundError(CuadernaError):
+    pass
+
+
 class TerminalError(CuadernaError):
     pass

@@ -9,9 +9,10 @@ from ._errors import (
     RunFailedError,
     RunHeldError,
     RunMismatchError,
+    RunNotFoundError,
     StepMismatchError,
 )
-from ._records import Lease, RunStatus
+from ._records import Lease, RunRecord, RunStatus, StepAttempt
 from ._run import RunContext, RunDefinition, active_run
 from ._serde import describe_error
 from .storage import Storage
@@ -76,6 +77,19 @@ class Engine:
         finally:
             heartbeat.cancel()
             await asyncio.gather(heartbeat, return_exceptions=True)
+
+    async def run_record(self, run_id: str) -> RunRecord:
+        record = await self._storage.get_run(run_id)
+        if record is None:
+            raise RunNotFoundError(f"run {run_id!r} is not in the journal")
+        return record
+
+    async def runs(self, *, limit: int = 100) -> list[RunRecord]:
+        return await self._storage.list_runs(limit)
+
+    async def steps(self, run_id: str) -> list[StepAttempt]:
+        await self.run_record(run_id)
+        return await self._storage.load_attempts(run_id)
 
     async def _claim(self, run_id: str) -> Lease | None:
         claim = asyncio.ensure_future(
