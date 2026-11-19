@@ -64,6 +64,8 @@ The code between steps runs again on every resume and has to decide the same thi
 - "Exactly once" is not promised. Inside a step, `cuaderna.idempotency_key()` returns a key that stays the same across retries and resumes, to pass to an external system that can discard a repeated request. Model APIs do not document that kind of deduplication, so the one call that was in flight during a crash can be charged twice.
 - After a change that makes old runs take a different path, set `@cuaderna.run(code_version="2")`. An unfinished run started by another version is refused instead of replayed.
 
+A method can be a step. Its `self` is not stored, so whatever the step reads from the object has to be the same on every execution, like the rest of the code between steps. A run has to be a plain function.
+
 The journal is a SQLite file. It has to be on a local disk, not on a network drive.
 
 [examples/fix_tests](examples/fix_tests) is a complete agent that can be killed and resumed.
