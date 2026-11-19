@@ -25,6 +25,18 @@
       </p>
     </header>
     <p id="status" role="status">Loading the sample run.</p>
+    <form id="controls">
+      <label>
+        Open a run file
+        <input id="file" type="file" accept=".json,application/json">
+      </label>
+      <p>Or drop one on the page. It is read in your browser and never uploaded.</p>
+    </form>
+    <div id="stepper">
+      <label for="scrubber">Step through</label>
+      <input id="scrubber" type="range" min="0" max="0" value="0">
+      <output id="scrubber-position" for="scrubber"></output>
+    </div>
     <main>
       <section aria-labelledby="timeline-title">
         <h2 id="timeline-title">Recorded attempts</h2>
