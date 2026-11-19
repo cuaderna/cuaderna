@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from ._errors import (
     LeaseLostError,
+    ReplayDivergedError,
     RunFailedError,
     RunHeldError,
     RunMismatchError,
@@ -14,6 +15,7 @@ from ._errors import (
 )
 from ._recording import RecordingContext
 from ._records import Lease, RunRecord, RunStatus, StepAttempt
+from ._replay import ReplayingContext
 from ._run import RunDefinition, active_run
 from ._serde import describe_error
 from .storage import Storage
@@ -91,6 +93,49 @@ class Engine:
     async def steps(self, run_id: str) -> list[StepAttempt]:
         await self.run_record(run_id)
         return await self._storage.load_attempts(run_id)
+
+    async def replay[R](self, run_id: str, run: RunDefinition[..., R], /) -> R:
+        record = await self.run_record(run_id)
+        if record.name != run.name:
+            raise RunMismatchError(
+                f"run {run_id!r} was recorded as {record.name}, not as {run.name}"
+            )
+        try:
+            arguments = run.codec.load_arguments(record.input_json)
+        except ValueError as error:
+            raise RunMismatchError(
+                f"the recorded input of run {run_id!r} does not fit {run.name} now: {error}"
+            ) from error
+        attempts = await self._storage.load_attempts(run_id)
+        context = ReplayingContext(run_id, {attempt.step_key: attempt for attempt in attempts})
+        try:
+            with active_run(context):
+                output = await run.function(*arguments.args, **arguments.kwargs)
+        except Exception as error:
+            swallowed = context.first_divergence
+            if swallowed is None or swallowed is error:
+                raise
+            raise swallowed from error
+        if context.first_divergence is not None:
+            raise context.first_divergence
+        never_replayed = context.never_replayed()
+        if never_replayed:
+            raise ReplayDivergedError(
+                f"the replay of run {run_id!r} never asked for the recorded steps "
+                f"{', '.join(never_replayed)}"
+            )
+        output_json = run.codec.dump_result(output)
+        if record.status is RunStatus.FAILED:
+            raise ReplayDivergedError(
+                f"the replay of run {run_id!r} returned {output_json}, "
+                f"but the run was recorded as failed: {record.error_json}"
+            )
+        if record.status is RunStatus.COMPLETED and output_json != record.output_json:
+            raise ReplayDivergedError(
+                f"the replay of run {run_id!r} returned {output_json}, "
+                f"not the recorded {record.output_json}"
+            )
+        return run.codec.load_result(output_json)
 
     async def _claim(self, run_id: str) -> Lease | None:
         claim = asyncio.ensure_future(

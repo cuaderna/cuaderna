@@ -55,5 +55,9 @@ class RunNotFoundError(CuadernaError):
     pass
 
 
+class ReplayDivergedError(CuadernaError):
+    pass
+
+
 class TerminalError(CuadernaError):
     pass

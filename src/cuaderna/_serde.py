@@ -38,6 +38,19 @@ class Codec[R]:
         }
         return json.dumps(plain, sort_keys=True, separators=(",", ":"))
 
+    def load_arguments(self, arguments_json: str) -> inspect.BoundArguments:
+        plain: dict[str, object] = json.loads(arguments_json)
+        if plain.keys() != self.parameters.keys():
+            raise ValueError(
+                f"stored arguments {sorted(plain)} are not the parameters {sorted(self.parameters)}"
+            )
+        bound = self.signature.bind_partial()
+        bound.arguments = {
+            name: self.parameters[name].validate_json(json.dumps(plain[name]))
+            for name in self.signature.parameters
+        }
+        return bound
+
     def dump_result(self, value: R) -> str:
         return self.result.dump_json(value, warnings="error").decode()
 
