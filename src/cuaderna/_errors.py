@@ -59,6 +59,10 @@ class ReplayDivergedError(CuadernaError):
     pass
 
 
+class PriceTableError(CuadernaError):
+    pass
+
+
 class RunFileError(CuadernaError):
     pass
 
