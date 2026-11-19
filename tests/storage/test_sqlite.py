@@ -62,6 +62,7 @@ def test_attempts_acknowledged_before_a_kill_survive_it(tmp_path: Path) -> None:
     writer.kill()
     acknowledged += [int(line) for line in writer.stdout.read().split()]
     writer.wait()
+    writer.stdout.close()
 
     survivors = asyncio.run(_load_attempts(path))
 
