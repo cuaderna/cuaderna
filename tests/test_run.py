@@ -137,6 +137,28 @@ async def test_a_cancelled_run_stays_unfinished_and_gives_up_its_lease(
     assert await journal.claim_run("run", "another worker", 60) is not None
 
 
+@pytest.mark.parametrize("slow_call", ["claim_run", "load_attempts"])
+async def test_a_run_cancelled_while_it_is_being_claimed_gives_up_its_lease(
+    engine: Engine, journal: Storage, monkeypatch: pytest.MonkeyPatch, slow_call: str
+) -> None:
+    storage = engine._storage  # pyright: ignore[reportPrivateUsage]
+    answer_now = getattr(storage, slow_call)
+
+    async def answer_late(*args: object) -> object:
+        answer = await answer_now(*args)
+        await asyncio.sleep(0.3)
+        return answer
+
+    monkeypatch.setattr(storage, slow_call, answer_late)
+    task = asyncio.create_task(engine.execute("run", wait_forever))
+    await asyncio.sleep(0.1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert await journal.claim_run("run", "another worker", 60) is not None
+
+
 def test_a_run_has_to_be_an_async_function() -> None:
     with pytest.raises(InvalidDefinitionError):
 
