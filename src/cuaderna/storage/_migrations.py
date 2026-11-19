@@ -102,6 +102,7 @@ _MIGRATIONS: tuple[tuple[str, ...], ...] = (
         END
         """,
     ),
+    ("ALTER TABLE step_attempts ADD COLUMN chain_hash TEXT",),
 )
 
 LATEST_VERSION = len(_MIGRATIONS)

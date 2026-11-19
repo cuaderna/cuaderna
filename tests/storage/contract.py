@@ -49,7 +49,9 @@ class StorageContract:
         for attempt in recorded:
             await storage.record_attempt(lease, attempt)
 
-        assert await storage.load_attempts("run") == [
+        loaded = await storage.load_attempts("run")
+
+        assert [replace(attempt, chain_hash=None) for attempt in loaded] == [
             replace(attempt, lease_token=lease.token) for attempt in recorded
         ]
 

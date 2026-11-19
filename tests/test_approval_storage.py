@@ -149,5 +149,5 @@ async def test_a_version_2_journal_migrates_to_3_with_its_attempts(
 
     assert [attempt.step_key for attempt in attempts] == ["step#1"]
     connection = sqlite3.connect(journal_path)
-    assert connection.execute("PRAGMA user_version").fetchone() == (3,)
+    assert connection.execute("PRAGMA user_version").fetchone() == (4,)
     connection.close()

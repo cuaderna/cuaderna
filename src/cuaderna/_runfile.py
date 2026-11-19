@@ -36,6 +36,7 @@ class _AttemptSection(BaseModel):
     finished_at: datetime
     lease_token: int | None
     annotations: JsonValue
+    chain_hash: str | None = None
 
 
 class _RunFile(BaseModel):
@@ -79,6 +80,7 @@ def dump_run_file(record: RunRecord, attempts: list[StepAttempt], redact: Redact
                 finished_at=attempt.finished_at,
                 lease_token=attempt.lease_token,
                 annotations=stored(f"{attempt.step_key}.annotations", attempt.annotations_json),
+                chain_hash=attempt.chain_hash,
             )
             for attempt in attempts
         ],
@@ -125,6 +127,7 @@ def _attempt(section: _AttemptSection) -> StepAttempt:
         finished_at=section.finished_at,
         lease_token=section.lease_token,
         annotations_json=None if section.annotations is None else _text(section.annotations),
+        chain_hash=section.chain_hash,
     )
 
 

@@ -109,7 +109,7 @@ async def test_a_version_1_journal_is_migrated_in_place_and_keeps_its_attempts(
         ("flaky_double#2", 1, None, None),
     ]
     connection = sqlite3.connect(path)
-    assert connection.execute("PRAGMA user_version").fetchone() == (3,)
+    assert connection.execute("PRAGMA user_version").fetchone() == (4,)
     assert connection.execute(
         "SELECT lease_token FROM step_attempts WHERE run_id = 'run-2'"
     ).fetchall() == [(lease.token,)]
