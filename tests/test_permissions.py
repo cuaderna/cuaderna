@@ -2,15 +2,19 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import suppress
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 import cuaderna
 from cuaderna import (
+    ApprovalNotPendingError,
     ApprovalRequiredError,
     AttemptStatus,
     Engine,
+    InvalidDefinitionError,
     PermissionDeniedError,
     Policy,
     RunStatus,
@@ -18,7 +22,7 @@ from cuaderna import (
 )
 
 KEY = "cuaderna.authorization"
-STEP_NAMES = ["write_file", "explode", "forge", "flaky"]
+STEP_NAMES = ["write_file", "explode", "forge", "flaky", "deliver"]
 
 bodies_that_ran: list[str] = []
 refusals: list[Exception] = []
@@ -49,6 +53,8 @@ def authorization(
 
 
 ALLOW_ALL = policy_of(rule("allow-all", "allow"))
+ASKING = policy_of(rule("needs-review", "ask"))
+target = {"name": "a"}
 
 
 @pytest.fixture(autouse=True)
@@ -88,6 +94,12 @@ async def flaky() -> str:
     raise ValueError("try again")
 
 
+@cuaderna.step(name="deliver")
+async def deliver(name: str) -> str:
+    bodies_that_ran.append(name)
+    return name
+
+
 STEPS: dict[str, Callable[[], Awaitable[object]]] = {
     "write_file": write_file,
     "explode": explode,
@@ -109,6 +121,11 @@ async def call(step_names: list[str], catching: bool = False) -> str:
                 raise
             refusals.append(error)
     return "went on"
+
+
+@cuaderna.run
+async def send() -> str:
+    return await deliver(target["name"])
 
 
 async def annotations_of(engine: Engine) -> dict[str, dict[str, object]]:
@@ -270,3 +287,153 @@ async def test_an_ask_swallowed_by_the_run_is_raised_at_the_end(engine: Engine) 
     assert len(refusals) == 2
     assert refusals[0] is refusals[1]
     assert bodies_that_ran == []
+
+
+async def last_authorization(engine: Engine) -> dict[str, Any]:
+    attempts = await engine.steps("run-1")
+    return json.loads(attempts[-1].annotations_json or "{}")[KEY]
+
+
+async def ask_and_approve(engine: Engine, step_names: list[str], policy: Policy = ASKING) -> None:
+    with pytest.raises(ApprovalRequiredError):
+        await engine.execute("run-1", call.with_policy(policy), step_names)
+    await engine.approve("run-1", f"{step_names[-1]}#1", by="bob", note="ok")
+
+
+async def test_an_ask_stores_one_pending_request(actor_engine: Engine) -> None:
+    for _ in range(2):
+        with pytest.raises(ApprovalRequiredError):
+            await actor_engine.execute("run-1", call.with_policy(ASKING), ["write_file"])
+
+    [request] = await actor_engine.pending()
+    assert (request.run_id, request.step_key, request.name) == (
+        "run-1",
+        "write_file#1",
+        "write_file",
+    )
+    assert (request.policy_id, request.policy_hash) == ("test-policy", ASKING.content_hash)
+    assert request.rules == ("needs-review",)
+    assert await actor_engine.pending("run-1") == [request]
+
+
+async def test_an_approved_step_runs_once_and_records_the_approval(actor_engine: Engine) -> None:
+    policy = policy_of(
+        {**rule("free", "allow"), "steps": ["forge"]},
+        {**rule("needs-review", "ask"), "steps": ["write_file"]},
+    )
+    await ask_and_approve(actor_engine, ["forge", "write_file"], policy)
+
+    assert await actor_engine.execute("run-1", call.with_policy(policy), ["forge", "write_file"])
+    assert bodies_that_ran == ["write_file"]
+    assert len(await actor_engine.steps("run-1")) == 2
+    recorded = await last_authorization(actor_engine)
+    datetime.fromisoformat(recorded["approval"].pop("at"))
+    assert recorded == {
+        **authorization("allow", "rule", ["needs-review"], policy),
+        "effect": "ask",
+        "approval": {"by": "bob", "note": "ok"},
+    }
+    assert await actor_engine.pending() == []
+
+
+async def test_a_rejected_step_never_runs_and_the_run_finishes(actor_engine: Engine) -> None:
+    with pytest.raises(ApprovalRequiredError):
+        await actor_engine.execute("run-1", call.with_policy(ASKING), ["write_file"], True)
+    await actor_engine.reject("run-1", "write_file#1", by="bob")
+    refusals.clear()
+
+    assert await actor_engine.execute("run-1", call.with_policy(ASKING), ["write_file"], True)
+    [denied] = refusals
+    assert isinstance(denied, PermissionDeniedError)
+    assert denied.reason == "rejected"
+    assert str(denied) == "step 'write_file#1' is not allowed: rejected by bob"
+    assert bodies_that_ran == []
+    assert (await actor_engine.run_record("run-1")).status is RunStatus.COMPLETED
+    recorded = await last_authorization(actor_engine)
+    assert (recorded["decision"], recorded["reason"]) == ("deny", "rejected")
+    assert recorded["approval"]["by"] == "bob"
+
+
+async def test_an_answer_does_not_cover_other_arguments(actor_engine: Engine) -> None:
+    sending = send.with_policy(ASKING)
+    with pytest.raises(ApprovalRequiredError):
+        await actor_engine.execute("run-1", sending)
+    await actor_engine.approve("run-1", "deliver#1", by="bob")
+    target["name"] = "b"
+
+    with pytest.raises(ApprovalRequiredError):
+        await actor_engine.execute("run-1", sending)
+
+    [request] = await actor_engine.pending()
+    assert "b" in request.args_json
+    assert bodies_that_ran == []
+    target["name"] = "a"
+
+
+async def test_an_answer_needs_a_pending_request_and_a_name(actor_engine: Engine) -> None:
+    with pytest.raises(ApprovalRequiredError):
+        await actor_engine.execute("run-1", call.with_policy(ASKING), ["write_file"])
+    with pytest.raises(InvalidDefinitionError):
+        await actor_engine.approve("run-1", "write_file#1", by="")
+    with pytest.raises(ApprovalNotPendingError):
+        await actor_engine.approve("run-1", "write_file#2", by="bob")
+
+    await actor_engine.approve("run-1", "write_file#1", by="bob")
+    with pytest.raises(ApprovalNotPendingError):
+        await actor_engine.reject("run-1", "write_file#1", by="carol")
+
+
+async def test_a_pending_request_is_answered_from_another_engine(
+    actor_engine: Engine, journal_path: Path
+) -> None:
+    with pytest.raises(ApprovalRequiredError):
+        await actor_engine.execute("run-1", call.with_policy(ASKING), ["write_file"])
+    other = Engine(journal_path)
+    try:
+        [request] = await other.pending("run-1")
+        await other.approve("run-1", request.step_key, by="bob")
+    finally:
+        await other.close()
+
+    assert await actor_engine.execute("run-1", call.with_policy(ASKING), ["write_file"])
+    assert bodies_that_ran == ["write_file"]
+
+
+async def test_the_current_policy_decides_before_the_approval(actor_engine: Engine) -> None:
+    await ask_and_approve(actor_engine, ["write_file"])
+    denying = call.with_policy(policy_of(rule("no", "deny")))
+    with pytest.raises(PermissionDeniedError) as denied:
+        await actor_engine.execute("run-1", denying, ["write_file"])
+
+    assert (denied.value.reason, denied.value.rules) == ("rule", ("no",))
+
+
+async def test_an_allow_after_an_approval_runs_without_it(actor_engine: Engine) -> None:
+    await ask_and_approve(actor_engine, ["write_file"])
+    await actor_engine.execute("run-1", call.with_policy(ALLOW_ALL), ["write_file"])
+
+    assert await last_authorization(actor_engine) == authorization(
+        "allow", "rule", ["allow-all"], ALLOW_ALL
+    )
+
+
+async def test_pending_lists_the_requests_of_every_run(actor_engine: Engine) -> None:
+    for run_id in ["run-1", "run-2"]:
+        with pytest.raises(ApprovalRequiredError):
+            await actor_engine.execute(run_id, call.with_policy(ASKING), ["write_file"])
+
+    assert [request.run_id for request in await actor_engine.pending()] == ["run-1", "run-2"]
+
+
+async def test_a_retry_of_an_approved_call_does_not_ask_again(actor_engine: Engine) -> None:
+    await ask_and_approve(actor_engine, ["flaky"])
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(
+            actor_engine.execute("run-1", call.with_policy(ASKING), ["flaky"]), timeout=1
+        )
+
+    with pytest.raises(StepFailedError):
+        await actor_engine.execute("run-1", call.with_policy(ASKING), ["flaky"])
+
+    assert bodies_that_ran == ["flaky", "flaky"]
+    assert await actor_engine.pending() == []

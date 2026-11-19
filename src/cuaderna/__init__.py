@@ -2,6 +2,7 @@ from . import usage
 from ._cost import AttemptCost, RunCost
 from ._engine import Engine
 from ._errors import (
+    ApprovalNotPendingError,
     ApprovalRequiredError,
     BudgetExceededError,
     CostUnknownError,
@@ -28,11 +29,13 @@ from ._errors import (
 from ._library import new_id, now, random
 from ._policy import Decision, Policy
 from ._prices import PriceTable
-from ._records import AttemptStatus, RunRecord, RunStatus, StepAttempt
+from ._records import ApprovalRequest, AttemptStatus, RunRecord, RunStatus, StepAttempt
 from ._run import run
 from ._step import annotate, idempotency_key, step
 
 __all__ = [
+    "ApprovalNotPendingError",
+    "ApprovalRequest",
     "ApprovalRequiredError",
     "AttemptCost",
     "AttemptStatus",

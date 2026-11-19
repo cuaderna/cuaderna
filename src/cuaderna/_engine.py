@@ -1,11 +1,13 @@
 import asyncio
 import json
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 from ._cost import RunCost, cost_for_budget, repriced_cost, run_cost
 from ._errors import (
+    ApprovalNotPendingError,
     ApprovalRequiredError,
     BudgetExceededError,
     CostUnknownError,
@@ -22,7 +24,14 @@ from ._errors import (
 )
 from ._prices import PriceTable
 from ._recording import Budget, RecordingContext
-from ._records import Lease, RunRecord, RunStatus, StepAttempt
+from ._records import (
+    ApprovalAnswer,
+    ApprovalRequest,
+    Lease,
+    RunRecord,
+    RunStatus,
+    StepAttempt,
+)
 from ._replay import ReplayingContext
 from ._run import RunDefinition, active_run
 from ._runfile import Redact, dump_run_file, load_run_file
@@ -117,6 +126,33 @@ class Engine:
     async def cost(self, run_id: str) -> RunCost:
         return run_cost(await self.steps(run_id))
 
+    async def pending(self, run_id: str | None = None) -> list[ApprovalRequest]:
+        if run_id is not None:
+            await self.run_record(run_id)
+        approvals = await self._storage.list_approvals(run_id)
+        return [approval.request for approval in approvals if approval.answer is None]
+
+    async def approve(
+        self, run_id: str, step_key: str, *, by: str, note: str | None = None
+    ) -> None:
+        await self._answer(run_id, step_key, True, by, note)
+
+    async def reject(self, run_id: str, step_key: str, *, by: str, note: str | None = None) -> None:
+        await self._answer(run_id, step_key, False, by, note)
+
+    async def _answer(
+        self, run_id: str, step_key: str, approved: bool, by: str, note: str | None
+    ) -> None:
+        if not by:
+            raise InvalidDefinitionError("an answer needs the name of who gives it")
+        asked = [request for request in await self.pending(run_id) if request.step_key == step_key]
+        if not asked:
+            raise ApprovalNotPendingError(
+                f"no pending approval for step {step_key!r} of run {run_id!r}"
+            )
+        answer = ApprovalAnswer(approved, by, note, datetime.now(UTC))
+        await self._storage.answer_approval(run_id, step_key, asked[-1].args_hash, answer)
+
     async def reprice(self, run_id: str, *, provider: str, model: str) -> RunCost:
         if self._prices is None:
             raise PriceTableError("repricing a run needs an engine with a price table")
@@ -204,17 +240,30 @@ class Engine:
     ) -> R:
         try:
             attempts = await self._storage.load_attempts(lease.run_id)
+            approvals = await self._storage.list_approvals(lease.run_id)
         except BaseException:
             await self._storage.release_run(lease)
             raise
         recorded = {attempt.step_key: attempt for attempt in attempts}
+        answers = {
+            (approval.request.step_key, approval.request.args_hash): approval.answer
+            for approval in approvals
+            if approval.answer is not None
+        }
         budget = None
         if run.budget_usd is not None and self._prices is not None:
             claimed = cost_for_budget(attempts, self._prices)
             unknown = next((cost for cost in claimed.attempts if cost.usd is None), None)
             budget = Budget(lease.run_id, run.budget_usd, claimed.total_usd, unknown)
         context = RecordingContext(
-            self._storage, lease, recorded, self._prices, budget, run.policy, self._actor
+            self._storage,
+            lease,
+            recorded,
+            self._prices,
+            budget,
+            run.policy,
+            self._actor,
+            answers=answers,
         )
         try:
             with active_run(context):

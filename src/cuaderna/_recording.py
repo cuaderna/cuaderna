@@ -24,7 +24,7 @@ from ._errors import (
 from ._library import LIBRARY_STEPS
 from ._policy import Decision, Policy
 from ._prices import PriceTable
-from ._records import AttemptStatus, Lease, StepAttempt
+from ._records import ApprovalAnswer, ApprovalRequest, AttemptStatus, Lease, StepAttempt
 from ._run import StepDefinition, StepKeys
 from ._serde import describe_error, hash_arguments, load_error
 from ._step import ActiveStep, active_step, retry_delay, step_failed
@@ -67,6 +67,9 @@ class RecordingContext:
     actor: str | None = None
     step_keys: StepKeys = field(default_factory=StepKeys)
     stopped: StopError | None = None
+    answers: dict[tuple[str, str], ApprovalAnswer] = field(
+        default_factory=dict[tuple[str, str], ApprovalAnswer]
+    )
 
     async def execute_step(
         self,
@@ -142,11 +145,56 @@ class RecordingContext:
             return None
         decision = self.policy.decide(definition.name, args_json)
         if decision.effect == "ask":
+            return await self._ask(self.policy, definition, step_key, attempt, args_json, decision)
+        if decision.effect == "allow":
+            return authorization_annotation(
+                decision, self.policy, self.actor, "allow", decision.reason
+            )
+        authorization = authorization_annotation(
+            decision, self.policy, self.actor, "deny", decision.reason
+        )
+        denied = PermissionDeniedError(
+            step_key, denial_message(step_key, decision), decision.reason, decision.rules
+        )
+        return await self._deny(definition, step_key, attempt, args_json, denied, authorization)
+
+    async def _ask(
+        self,
+        policy: Policy,
+        definition: StepDefinition,
+        step_key: str,
+        attempt: int,
+        args_json: str,
+        decision: Decision,
+    ) -> dict[str, JsonValue]:
+        args_hash = hash_arguments(args_json)
+        answer = self.answers.get((step_key, args_hash))
+        if answer is None:
+            request = ApprovalRequest(
+                self.lease.run_id,
+                step_key,
+                definition.name,
+                args_hash,
+                args_json,
+                policy.id,
+                policy.content_hash,
+                decision.rules,
+                datetime.now(UTC),
+            )
+            await self.storage.request_approval(self.lease, request)
             self._stop(ApprovalRequiredError(self.lease.run_id, step_key, definition.name))
-        authorization = authorization_annotation(decision, self.policy, self.actor)
-        if decision.effect == "deny":
-            await self._deny(definition, step_key, attempt, args_json, decision, authorization)
-        return authorization
+        if answer.approved:
+            return authorization_annotation(decision, policy, self.actor, "allow", "rule", answer)
+        authorization = authorization_annotation(
+            decision, policy, self.actor, "deny", "rejected", answer
+        )
+        denied = PermissionDeniedError(
+            step_key,
+            f"step {step_key!r} is not allowed: rejected by {answer.by}",
+            "rejected",
+            decision.rules,
+        )
+        return await self._deny(definition, step_key, attempt, args_json, denied, authorization)
 
     async def _deny(
         self,
@@ -154,13 +202,10 @@ class RecordingContext:
         step_key: str,
         attempt: int,
         args_json: str,
-        decision: Decision,
+        denied: PermissionDeniedError,
         authorization: dict[str, JsonValue],
     ) -> NoReturn:
         started_at = datetime.now(UTC)
-        denied = PermissionDeniedError(
-            step_key, denial_message(step_key, decision), decision.reason, decision.rules
-        )
         details = {
             "type": denied.error_type,
             "message": denied.message,
