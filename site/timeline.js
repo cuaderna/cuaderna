@@ -1,8 +1,17 @@
 const RUN_FILE_FORMAT = "cuaderna.run/1";
 const SAMPLE_URL = "sample-run.json";
+const MODEL_FACTS = [
+  ["requested model", "gen_ai.request.model"],
+  ["answered by", "gen_ai.response.model"],
+  ["input tokens", "gen_ai.usage.input_tokens"],
+  ["input tokens read from cache", "gen_ai.usage.cache_read.input_tokens"],
+  ["output tokens", "gen_ai.usage.output_tokens"],
+];
 
 const statusLine = document.querySelector("#status");
 const timeline = document.querySelector("#timeline");
+const detail = document.querySelector("#detail");
+const stackedLayout = window.matchMedia("(max-width: 60rem)");
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -69,17 +78,124 @@ function leaseGroups(attempts) {
   return groups;
 }
 
-function rowItem(cells, status) {
-  const item = element("li", `row ${status}`);
-  item.append(...cells);
-  return item;
+function valueNode(value) {
+  if (typeof value === "string") {
+    return element("pre", "", value);
+  }
+  if (value === null || typeof value !== "object") {
+    return element("code", "", JSON.stringify(value));
+  }
+  const entries = Object.entries(value);
+  if (entries.length === 0) {
+    return element("code", "", JSON.stringify(value));
+  }
+  return factsNode(entries.map(([name, inner]) => [name, valueNode(inner)]));
+}
+
+function factsNode(facts) {
+  const list = element("dl");
+  for (const [name, content] of facts) {
+    const description = element("dd");
+    description.append(content);
+    list.append(element("dt", "", name), description);
+  }
+  return list;
+}
+
+function sectionNodes(title, value) {
+  return [element("h3", "", title), valueNode(value)];
+}
+
+function outcomeNodes(succeeded, failed, result, error) {
+  if (succeeded) {
+    return sectionNodes("Result", result);
+  }
+  if (failed) {
+    return sectionNodes("Error", error);
+  }
+  return [];
+}
+
+function detailTitle(text) {
+  const title = element("h2", "", text);
+  title.id = "detail-title";
+  return title;
+}
+
+function showRunDetail(run, attemptCount) {
+  detail.replaceChildren(
+    detailTitle(`Run ${run.run_id}`),
+    factsNode([
+      ["function", run.name],
+      ["status", run.status],
+      ["code version", run.code_version ?? "not recorded"],
+      ["created", run.created_at],
+      ["finished", run.finished_at ?? "not finished"],
+      ["attempts recorded", String(attemptCount)],
+    ]),
+    ...sectionNodes("Input", run.input),
+    ...outcomeNodes(run.status === "completed", run.status === "failed", run.output, run.error),
+  );
+}
+
+function showAttemptDetail(attempt) {
+  const annotations = attempt.annotations ?? {};
+  const modelFacts = MODEL_FACTS.filter(([, key]) => key in annotations).map(([label, key]) => [
+    label,
+    String(annotations[key]),
+  ]);
+  const nodes = [
+    detailTitle(attempt.step_key),
+    factsNode([
+      ["function", attempt.name],
+      ["attempt", String(attempt.attempt)],
+      ["status", attempt.status],
+      ["started", attempt.started_at],
+      ["finished", attempt.finished_at],
+      ["duration", durationText(secondsBetween(attempt.started_at, attempt.finished_at))],
+      ["lease token", String(attempt.lease_token ?? "not recorded")],
+    ]),
+  ];
+  if (modelFacts.length > 0) {
+    nodes.push(element("h3", "", "Model call"), factsNode(modelFacts));
+  }
+  nodes.push(
+    ...sectionNodes("Arguments", attempt.args),
+    ...outcomeNodes(
+      attempt.status === "ok",
+      attempt.status === "error",
+      attempt.result,
+      attempt.error,
+    ),
+  );
+  if (attempt.annotations) {
+    nodes.push(...sectionNodes("Annotations", attempt.annotations));
+  }
+  detail.replaceChildren(...nodes);
+}
+
+function rowButton(cells, status, onSelect) {
+  const button = element("button", `row ${status}`);
+  button.type = "button";
+  button.append(...cells);
+  button.addEventListener("click", () => {
+    for (const other of timeline.querySelectorAll("button[aria-current]")) {
+      other.removeAttribute("aria-current");
+    }
+    button.setAttribute("aria-current", "true");
+    onSelect();
+    if (stackedLayout.matches) {
+      detail.focus();
+    }
+  });
+  return button;
 }
 
 function attemptRow(attempt, longestSeconds) {
   const seconds = secondsBetween(attempt.started_at, attempt.finished_at);
   const bar = element("span", "bar");
   bar.style.setProperty("--share", String(seconds / longestSeconds));
-  return rowItem(
+  const button = rowButton(
     [
       element("span", "key", attempt.step_key),
       element("span", "", `attempt ${attempt.attempt}`),
@@ -88,7 +204,11 @@ function attemptRow(attempt, longestSeconds) {
       bar,
     ],
     attempt.status,
+    () => showAttemptDetail(attempt),
   );
+  const item = element("li");
+  item.append(button);
+  return item;
 }
 
 function takeoverNote(previousGroup, group) {
@@ -122,7 +242,7 @@ function showRunFile(file) {
     secondsBetween(attempt.started_at, attempt.finished_at),
   );
   const longestSeconds = Math.max(...durations, 0.001);
-  const runItem = rowItem(
+  const runButton = rowButton(
     [
       element("span", "key", run.name),
       element("span", "", "the run"),
@@ -130,7 +250,10 @@ function showRunFile(file) {
       element("span", "status", run.status),
     ],
     run.status,
+    () => showRunDetail(run, attempts.length),
   );
+  const runItem = element("li");
+  runItem.append(runButton);
   const items = [runItem];
   const groups = leaseGroups(attempts);
   groups.forEach((group, position) => {
@@ -143,6 +266,8 @@ function showRunFile(file) {
     items.push(element("li", "takeover", "This run has no recorded attempts."));
   }
   timeline.replaceChildren(...items);
+  runButton.setAttribute("aria-current", "true");
+  showRunDetail(run, attempts.length);
   statusLine.textContent = `Showing run ${run.run_id}: ${attempts.length} attempts, ${run.status}.`;
 }
 
