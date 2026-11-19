@@ -14,7 +14,7 @@ from ._errors import (
 )
 from ._library import new_id, now, random
 from ._run import run
-from ._step import step
+from ._step import idempotency_key, step
 
 __all__ = [
     "CuadernaError",
@@ -29,6 +29,7 @@ __all__ = [
     "StepFailedError",
     "StepMismatchError",
     "TerminalError",
+    "idempotency_key",
     "new_id",
     "now",
     "random",
