@@ -6,7 +6,7 @@ A *cuaderna* is a rib of a ship's hull: the structure underneath that holds ever
 
 ## Status
 
-Early development. The package on PyPI is a placeholder and there is nothing to use yet. This README will grow as each piece lands.
+Early development. The package on PyPI is a placeholder and there is nothing to use yet.
 
 ## What it is
 
@@ -32,7 +32,7 @@ Requires Python 3.12 or newer.
 
 ## Contributing
 
-The project is not ready for outside contributions yet, but issues and questions are welcome.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the checks to run. Issues and questions are welcome.
 
 ## License
 
