@@ -40,9 +40,11 @@ class Engine:
         lease_seconds: float = 60.0,
         claim_timeout_seconds: float | None = None,
         prices: PriceTable | None = None,
+        actor: str | None = None,
     ) -> None:
         self._storage: Storage = SqliteStorage(path)
         self._prices = prices
+        self._actor = actor
         self._owner = uuid4().hex
         self._lease_seconds = lease_seconds
         self._claim_timeout_seconds = claim_timeout_seconds
@@ -210,7 +212,9 @@ class Engine:
             claimed = cost_for_budget(attempts, self._prices)
             unknown = next((cost for cost in claimed.attempts if cost.usd is None), None)
             budget = Budget(lease.run_id, run.budget_usd, claimed.total_usd, unknown)
-        context = RecordingContext(self._storage, lease, recorded, self._prices, budget)
+        context = RecordingContext(
+            self._storage, lease, recorded, self._prices, budget, run.policy, self._actor
+        )
         try:
             with active_run(context):
                 output = await run.function(*args, **kwargs)

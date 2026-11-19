@@ -7,8 +7,16 @@ from typing import NoReturn
 
 from pydantic import JsonValue
 
+from ._authorization import (
+    authorization_annotation,
+    denial_message,
+    recorded_failure,
+    with_authorization,
+)
 from ._cost import AttemptCost, run_cost, with_cost
-from ._errors import BudgetExceededError, CostUnknownError, StepMismatchError
+from ._errors import BudgetExceededError, CostUnknownError, PermissionDeniedError, StepMismatchError
+from ._library import LIBRARY_STEPS
+from ._policy import Decision, Policy
 from ._prices import PriceTable
 from ._records import AttemptStatus, Lease, StepAttempt
 from ._run import StepDefinition, StepKeys
@@ -49,6 +57,8 @@ class RecordingContext:
     recorded: dict[str, StepAttempt]
     prices: PriceTable | None = None
     budget: Budget | None = None
+    policy: Policy | None = None
+    actor: str | None = None
     step_keys: StepKeys = field(default_factory=StepKeys)
     stopped: StopError | None = None
 
@@ -75,9 +85,10 @@ class RecordingContext:
             if recorded.error_json is not None:
                 details = load_error(recorded.error_json)
                 if details["terminal"] or recorded.attempt >= definition.max_attempts:
-                    raise step_failed(step_key, details)
+                    raise recorded_failure(step_key, recorded, details)
             first_attempt = recorded.attempt + 1
         for attempt in range(first_attempt, definition.max_attempts + 1):
+            authorization = await self._authorize(definition, step_key, attempt, args_json)
             if self.budget is not None:
                 stop = self.budget.stop()
                 if stop is not None:
@@ -95,7 +106,7 @@ class RecordingContext:
                     attempt,
                     args_json,
                     started_at,
-                    with_cost(running.annotations, self.prices),
+                    with_authorization(with_cost(running.annotations, self.prices), authorization),
                     error_json=json.dumps(details),
                 )
                 await self._record(failed)
@@ -109,7 +120,7 @@ class RecordingContext:
                     attempt,
                     args_json,
                     started_at,
-                    with_cost(running.annotations, self.prices),
+                    with_authorization(with_cost(running.annotations, self.prices), authorization),
                     result_json=result_json,
                 )
                 await self._record(succeeded)
@@ -117,6 +128,51 @@ class RecordingContext:
             finally:
                 active_step.reset(token)
         raise StepMismatchError(f"step {step_key!r} has more recorded attempts than it allows now")
+
+    async def _authorize(
+        self, definition: StepDefinition, step_key: str, attempt: int, args_json: str
+    ) -> dict[str, JsonValue] | None:
+        if self.policy is None or definition.name in LIBRARY_STEPS:
+            return None
+        decision = self.policy.decide(definition.name, args_json)
+        authorization = authorization_annotation(decision, self.policy, self.actor)
+        if decision.effect != "allow":
+            await self._deny(definition, step_key, attempt, args_json, decision, authorization)
+        return authorization
+
+    async def _deny(
+        self,
+        definition: StepDefinition,
+        step_key: str,
+        attempt: int,
+        args_json: str,
+        decision: Decision,
+        authorization: dict[str, JsonValue],
+    ) -> NoReturn:
+        started_at = datetime.now(UTC)
+        denied = PermissionDeniedError(
+            step_key, denial_message(step_key, decision), decision.reason, decision.rules
+        )
+        details = {
+            "type": denied.error_type,
+            "message": denied.message,
+            "traceback": "",
+            "terminal": True,
+        }
+        annotations = with_authorization({}, authorization)
+        error_json = json.dumps(details)
+        await self._record(
+            _attempt(
+                step_key,
+                definition.name,
+                attempt,
+                args_json,
+                started_at,
+                annotations,
+                error_json=error_json,
+            )
+        )
+        raise denied
 
     def _stop(self, error: StopError) -> NoReturn:
         self.stopped = error

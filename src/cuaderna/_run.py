@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol, overload
 
 from ._errors import InvalidDefinitionError
+from ._policy import Policy
 from ._serde import Codec, build_codec, receiver_of
 
 
@@ -51,9 +52,13 @@ class RunDefinition[**P, R]:
     codec: Codec[R]
     code_version: str | None
     budget_usd: Decimal | None = None
+    policy: Policy | None = None
 
     def with_budget(self, budget_usd: Decimal | str) -> "RunDefinition[P, R]":
         return dataclasses.replace(self, budget_usd=_as_budget(self.name, budget_usd))
+
+    def with_policy(self, policy: Policy) -> "RunDefinition[P, R]":
+        return dataclasses.replace(self, policy=policy)
 
 
 class _RunDecorator(Protocol):
@@ -71,7 +76,10 @@ def run[**P, R](function: Callable[P, Coroutine[Any, Any, R]], /) -> RunDefiniti
 
 @overload
 def run(
-    *, code_version: str | None = None, budget_usd: Decimal | str | None = None
+    *,
+    code_version: str | None = None,
+    budget_usd: Decimal | str | None = None,
+    policy: Policy | None = None,
 ) -> _RunDecorator: ...
 
 
@@ -81,8 +89,11 @@ def run(
     *,
     code_version: str | None = None,
     budget_usd: Decimal | str | None = None,
+    policy: Policy | None = None,
 ) -> Any:
-    define = functools.partial(_define, code_version=code_version, budget_usd=budget_usd)
+    define = functools.partial(
+        _define, code_version=code_version, budget_usd=budget_usd, policy=policy
+    )
     if function is None:
         return define
     return define(function)
@@ -93,6 +104,7 @@ def _define(
     *,
     code_version: str | None,
     budget_usd: Decimal | str | None,
+    policy: Policy | None,
 ) -> RunDefinition[..., Any]:
     name = function.__name__
     if not inspect.iscoroutinefunction(function):
@@ -100,7 +112,7 @@ def _define(
     if receiver_of(inspect.signature(function)) is not None:
         raise InvalidDefinitionError(f"{name}: a run cannot be a method")
     budget = None if budget_usd is None else _as_budget(name, budget_usd)
-    return RunDefinition(name, function, build_codec(function, name), code_version, budget)
+    return RunDefinition(name, function, build_codec(function, name), code_version, budget, policy)
 
 
 def _as_budget(name: str, budget_usd: object) -> Decimal:
