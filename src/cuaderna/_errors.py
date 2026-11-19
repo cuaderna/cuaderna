@@ -12,3 +12,11 @@ class JournalConflictError(CuadernaError):
 
 class SchemaVersionError(CuadernaError):
     pass
+
+
+class InvalidDefinitionError(CuadernaError):
+    pass
+
+
+class RunNotAvailableError(CuadernaError):
+    pass
