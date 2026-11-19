@@ -3,6 +3,7 @@ from ._cost import AttemptCost, RunCost
 from ._engine import Engine
 from ._errors import (
     BudgetExceededError,
+    CostUnknownError,
     CuadernaError,
     InvalidDefinitionError,
     JournalConflictError,
@@ -31,6 +32,7 @@ __all__ = [
     "AttemptCost",
     "AttemptStatus",
     "BudgetExceededError",
+    "CostUnknownError",
     "CuadernaError",
     "Engine",
     "InvalidDefinitionError",

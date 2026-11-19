@@ -76,6 +76,18 @@ class BudgetExceededError(CuadernaError):
         self.spent_usd = spent_usd
 
 
+class CostUnknownError(CuadernaError):
+    def __init__(self, run_id: str, step_key: str, attempt: int, reason: str | None) -> None:
+        super().__init__(
+            f"run {run_id!r} has a budget and the cost of step {step_key!r}, "
+            f"attempt {attempt}, is unknown: {reason}"
+        )
+        self.run_id = run_id
+        self.step_key = step_key
+        self.attempt = attempt
+        self.reason = reason
+
+
 class RunFileError(CuadernaError):
     pass
 

@@ -9,11 +9,29 @@ from typing import cast
 import pytest
 
 import cuaderna
-from cuaderna import BudgetExceededError, Engine, InvalidDefinitionError, RunStatus
+from cuaderna import (
+    BudgetExceededError,
+    CostUnknownError,
+    Engine,
+    InvalidDefinitionError,
+    RunStatus,
+)
 from cuaderna.storage import Storage
 from tests.test_cost import TABLE, model_call
 
 _WORKER_LEASE_SECONDS = 0.5
+
+TABLE_WITH_LARGE = cuaderna.PriceTable(
+    {
+        "format": "cuaderna.prices/1",
+        "id": "2026-11-20",
+        "currency": "USD",
+        "models": [
+            {"provider": "anthropic", "names": ["small"], "rates": {"input": "1", "output": "5"}},
+            {"provider": "anthropic", "names": ["large"], "rates": {"input": "10", "output": "50"}},
+        ],
+    }
+)
 
 _WORKER = """
 import asyncio
@@ -47,6 +65,13 @@ def forget_bodies() -> Iterator[None]:
 
 
 @pytest.fixture
+async def large_priced_engine(journal_path: Path) -> AsyncIterator[Engine]:
+    engine = Engine(journal_path, prices=TABLE_WITH_LARGE)
+    yield engine
+    await engine.close()
+
+
+@pytest.fixture
 async def priced_engine(journal_path: Path) -> AsyncIterator[Engine]:
     engine = Engine(journal_path, prices=TABLE)
     yield engine
@@ -57,6 +82,13 @@ async def priced_engine(journal_path: Path) -> AsyncIterator[Engine]:
 async def pay(label: str) -> str:
     bodies_that_ran.append(label)
     cuaderna.annotate(model_call("small"))
+    return label
+
+
+@cuaderna.step
+async def pay_large(label: str) -> str:
+    bodies_that_ran.append(label)
+    cuaderna.annotate(model_call("large"))
     return label
 
 
@@ -83,6 +115,22 @@ async def hang() -> str:
 async def pay_then_work() -> str:
     await pay("paid")
     return await work_for_free("free")
+
+
+@cuaderna.run
+async def pay_large_then_work() -> str:
+    await pay_large("paid large")
+    return await work_for_free("free")
+
+
+@cuaderna.run
+async def pay_large_then_swallow() -> str:
+    await pay_large("paid large")
+    try:
+        await work_for_free("free")
+    except Exception as error:
+        refusals.append(error)
+    return "gave up quietly"
 
 
 @cuaderna.run
@@ -235,3 +283,67 @@ async def test_the_spent_sum_survives_a_killed_process(
         await priced_engine.execute("run", pay_then_hang.with_budget("0.002"))
 
     assert bodies_that_ran == []
+
+
+async def test_a_run_stops_at_an_attempt_whose_cost_is_unknown(priced_engine: Engine) -> None:
+    with pytest.raises(CostUnknownError) as raised:
+        await priced_engine.execute("run-1", pay_large_then_work.with_budget("1"))
+
+    record = await priced_engine.run_record("run-1")
+    assert raised.value.step_key == "pay_large#1"
+    assert raised.value.attempt == 1
+    assert raised.value.reason
+    assert bodies_that_ran == ["paid large"]
+    assert record.status is RunStatus.RUNNING
+    assert record.output_json is None
+
+
+async def test_an_unknown_cost_is_priced_again_when_the_run_is_claimed(
+    priced_engine: Engine, large_priced_engine: Engine
+) -> None:
+    with pytest.raises(CostUnknownError):
+        await priced_engine.execute("run-1", pay_large_then_work.with_budget("1"))
+    bodies_that_ran.clear()
+
+    output = await large_priced_engine.execute("run-1", pay_large_then_work.with_budget("1"))
+
+    assert output == "free"
+    assert bodies_that_ran == ["free"]
+
+
+async def test_an_attempt_priced_at_claim_counts_towards_the_budget(
+    priced_engine: Engine, large_priced_engine: Engine
+) -> None:
+    with pytest.raises(CostUnknownError):
+        await priced_engine.execute("run-1", pay_large_then_work.with_budget("1"))
+
+    with pytest.raises(BudgetExceededError) as raised:
+        await large_priced_engine.execute("run-1", pay_large_then_work.with_budget("0.02"))
+
+    assert raised.value.spent_usd == Decimal("0.02")
+
+
+async def test_a_model_call_recorded_without_a_price_table_is_priced_at_claim(
+    engine: Engine, priced_engine: Engine, journal: Storage
+) -> None:
+    unpriced = asyncio.create_task(engine.execute("run-1", pay_then_hang))
+    while not await journal.load_attempts("run-1"):
+        await asyncio.sleep(0.01)
+    unpriced.cancel()
+    await asyncio.gather(unpriced, return_exceptions=True)
+
+    with pytest.raises(BudgetExceededError) as raised:
+        await priced_engine.execute("run-1", pay_then_hang.with_budget("0.002"))
+
+    assert raised.value.spent_usd == Decimal("0.002")
+
+
+async def test_a_run_that_swallows_the_unknown_cost_error_still_raises_it(
+    priced_engine: Engine,
+) -> None:
+    with pytest.raises(CostUnknownError):
+        await priced_engine.execute("run-1", pay_large_then_swallow.with_budget("1"))
+
+    record = await priced_engine.run_record("run-1")
+    assert len(refusals) == 1
+    assert record.status is RunStatus.RUNNING

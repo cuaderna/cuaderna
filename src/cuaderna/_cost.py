@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -49,18 +50,54 @@ def with_cost(annotations: dict[str, JsonValue], prices: PriceTable | None) -> d
 
 def run_cost(attempts: list[StepAttempt]) -> RunCost:
     costs: list[AttemptCost] = []
-    total = Decimal(0)
-    unknown = 0
+    for attempt in attempts:
+        cost = _attempt_cost(attempt)
+        if cost is not None:
+            costs.append(cost)
+    return _total(costs)
+
+
+def cost_for_budget(attempts: list[StepAttempt], prices: PriceTable) -> RunCost:
+    costs: list[AttemptCost] = []
     for attempt in attempts:
         cost = _attempt_cost(attempt)
         if cost is None:
             continue
+        if cost.usd is None:
+            cost = _priced_now(attempt, cost, prices)
         costs.append(cost)
+    return _total(costs)
+
+
+def _total(costs: list[AttemptCost]) -> RunCost:
+    total = Decimal(0)
+    unknown = 0
+    for cost in costs:
         if cost.usd is None:
             unknown += 1
         else:
             total += cost.usd
     return RunCost(total_usd=total, unknown_attempts=unknown, attempts=costs)
+
+
+def _priced_now(attempt: StepAttempt, unknown: AttemptCost, prices: PriceTable) -> AttemptCost:
+    if attempt.annotations_json is None:
+        return unknown
+    annotations: dict[str, JsonValue] = json.loads(attempt.annotations_json)
+    if not _is_model_call(annotations):
+        return unknown
+    priced = prices.price(annotations)
+    if isinstance(priced, UnknownCost):
+        return dataclasses.replace(unknown, reason=priced.reason)
+    return AttemptCost(
+        step_key=attempt.step_key,
+        attempt=attempt.attempt,
+        usd=priced.usd,
+        basis="computed",
+        model=priced.model,
+        parts=priced.parts,
+        reason=None,
+    )
 
 
 def _computed(prices: PriceTable, annotations: dict[str, JsonValue]) -> dict[str, JsonValue]:
