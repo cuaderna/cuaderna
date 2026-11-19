@@ -1,4 +1,5 @@
 from . import usage
+from ._cost import AttemptCost, RunCost
 from ._engine import Engine
 from ._errors import (
     CuadernaError,
@@ -26,6 +27,7 @@ from ._run import run
 from ._step import annotate, idempotency_key, step
 
 __all__ = [
+    "AttemptCost",
     "AttemptStatus",
     "CuadernaError",
     "Engine",
@@ -35,6 +37,7 @@ __all__ = [
     "PriceTable",
     "PriceTableError",
     "ReplayDivergedError",
+    "RunCost",
     "RunFailedError",
     "RunFileError",
     "RunHeldError",

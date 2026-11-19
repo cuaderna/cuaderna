@@ -71,6 +71,12 @@ async def rent_a_machine() -> str:
 
 
 @cuaderna.step
+async def pay_an_amount_nobody_can_read() -> str:
+    cuaderna.annotate({"cuaderna.cost": {"usd": "thirty cents"}})
+    return "done"
+
+
+@cuaderna.step
 def count_words(text: str) -> int:
     cuaderna.annotate({"thread": True})
     return len(text.split())
@@ -158,6 +164,77 @@ async def test_an_engine_with_no_table_records_no_cost(engine: Engine) -> None:
     await engine.execute("run-1", ask, "small")
 
     assert await recorded_costs(engine, "run-1") == [None, None]
+
+
+async def test_a_run_adds_up_its_model_calls_and_skips_the_other_steps(
+    priced_engine: Engine,
+) -> None:
+    await priced_engine.execute("run-1", ask, "small")
+
+    cost = await priced_engine.cost("run-1")
+
+    assert (cost.total_usd, cost.unknown_attempts) == (Decimal("0.002"), 0)
+    [attempt] = cost.attempts
+    assert (attempt.step_key, attempt.attempt, attempt.usd) == ("ask_model#1", 1, Decimal("0.002"))
+    assert (attempt.basis, attempt.model, attempt.reason) == ("computed", "small", None)
+    assert attempt.parts["output"] == Decimal("0.001")
+
+
+async def test_a_failed_attempt_and_a_reported_cost_are_part_of_the_total(
+    priced_engine: Engine,
+) -> None:
+    with pytest.raises(StepFailedError):
+        await priced_engine.execute("failed", ask_and_fail, "small")
+    await priced_engine.execute("reported", ask_a_gateway, "large")
+
+    assert (await priced_engine.cost("failed")).total_usd == Decimal("0.002")
+    reported = await priced_engine.cost("reported")
+    assert (reported.total_usd, reported.unknown_attempts) == (Decimal("0.0125"), 0)
+    assert reported.attempts[0].basis == "reported"
+
+
+async def test_what_cannot_be_priced_is_counted_as_unknown_and_not_as_free(
+    priced_engine: Engine,
+) -> None:
+    @cuaderna.run
+    async def flow() -> list[str]:
+        return [
+            await ask_model("small"),
+            await ask_model("large"),
+            await pay_an_amount_nobody_can_read(),
+        ]
+
+    await priced_engine.execute("run-1", flow)
+
+    cost = await priced_engine.cost("run-1")
+    assert (cost.total_usd, cost.unknown_attempts) == (Decimal("0.002"), 2)
+    assert [(attempt.usd, attempt.basis, attempt.reason) for attempt in cost.attempts[1:]] == [
+        (None, "unknown", "the price table has no anthropic model named 'large'"),
+        (None, "unknown", "the recorded cost cannot be read"),
+    ]
+
+
+async def test_a_model_call_recorded_without_a_table_is_unknown(engine: Engine) -> None:
+    await engine.execute("run-1", ask, "small")
+
+    cost = await engine.cost("run-1")
+
+    assert (cost.total_usd, cost.unknown_attempts) == (Decimal(0), 1)
+    assert cost.attempts[0].reason == "the model call was recorded without a price table"
+
+
+async def test_the_cost_of_an_imported_run_is_read_without_a_table(
+    priced_engine: Engine, tmp_path: Path
+) -> None:
+    await priced_engine.execute("run-1", ask, "small")
+    await priced_engine.export_run("run-1", tmp_path / "run.json")
+    reader = Engine(tmp_path / "reader.db")
+
+    run_id = await reader.import_run(tmp_path / "run.json")
+    cost = await reader.cost(run_id)
+    await reader.close()
+
+    assert cost == await priced_engine.cost("run-1")
 
 
 def test_a_reported_cost_has_to_be_an_amount() -> None:

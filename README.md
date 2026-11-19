@@ -90,6 +90,55 @@ The journal and the run file hold everything in plain text: prompts, tool output
 
 The journal is a SQLite file. It has to be on a local disk, not on a network drive.
 
+## What a run cost
+
+cuaderna ships no prices. Providers change them by announcement, and an amount stored in a journal should say whose numbers produced it, so the price table is a file you write and keep next to your code:
+
+```json
+{
+  "format": "cuaderna.prices/1",
+  "id": "2026-11-19",
+  "currency": "USD",
+  "models": [
+    {
+      "provider": "anthropic",
+      "names": ["claude-haiku-4-5", "claude-haiku-4-5-20251001"],
+      "rates": {
+        "input": "1",
+        "output": "5",
+        "cache_read": "0.10",
+        "cache_write": {"5m": "1.25", "1h": "2"},
+        "requests": {"web_search": "10"}
+      },
+      "variants": [
+        {"when": {"service_tier": "batch"}, "rates": {"input": "0.5", "output": "2.5"}}
+      ]
+    }
+  ]
+}
+```
+
+Token rates are USD per million tokens and request rates USD per thousand requests, written as strings so nothing goes through a float. A model is found by its exact provider and name, with the name in the response tried before the one that was requested. A variant replaces the whole set of rates when everything in its `when` holds: any fact the mapper found in the response (`service_tier`, `speed`, `inference_geo`), or `input_tokens_over` for long-context prices. The first variant that matches wins.
+
+```python
+prices = cuaderna.PriceTable.load("prices.json")
+engine = cuaderna.Engine("cuaderna.db", prices=prices)
+
+await engine.execute("fix-123", fix_tests, "path/to/repo")
+
+cost = await engine.cost("fix-123")
+print(cost.total_usd, cost.unknown_attempts)
+for attempt in cost.attempts:
+    print(attempt.step_key, attempt.attempt, attempt.usd, attempt.parts)
+```
+
+- The cost is computed once, when the attempt is recorded, and stored with it under `cuaderna.cost` together with the `id` of the table and a hash of its content. Editing the table later does not change what past runs cost.
+- Failed attempts count. A call that was paid for and then failed to parse is priced as long as `annotate` ran before the exception.
+- A model call that cannot be priced has unknown cost, never zero: the table does not have the model, a rate is missing for tokens the call used, or the response carried no usage. `unknown_attempts` counts them, each `AttemptCost` has the `reason`, and `total_usd` adds up only what is known. A model call recorded by an engine with no table is unknown too.
+- A cost you already know wins over the table. `cuaderna.annotate(cuaderna.usage.reported_cost("0.0125", "returned by the gateway"))` stores it as reported, which also covers a step that pays for something that is not a model.
+- One model call per step. `annotate` replaces keys, so a step that makes two calls records the usage of the last one.
+- `engine.cost` reads what the journal holds and needs no table, so it works on an imported run.
+
 ## Look at a run
 
 [site](site) is a static page that shows a run file: the attempts in the order they were recorded, grouped by the process that wrote them, with the arguments, result, error and annotations of each one. It has no build step and no server side. Serve the folder and open it:
