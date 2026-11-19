@@ -1,5 +1,6 @@
 import asyncio
 import sqlite3
+import time
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -7,7 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from cuaderna._records import RunRecord, RunStatus
+from cuaderna._errors import LeaseLostError
+from cuaderna._records import Lease, RunRecord, RunStatus
 from cuaderna.storage._migrations import LATEST_VERSION, pending_statements
 
 _RUN_COLUMNS = (
@@ -28,6 +30,31 @@ class SqliteStorage:
         return await self._call(
             lambda connection: _create_run(connection, run_id, name, input_json, code_version)
         )
+
+    async def claim_run(self, run_id: str, owner: str, lease_seconds: float) -> Lease | None:
+        return await self._call(
+            lambda connection: _claim_run(connection, run_id, owner, lease_seconds)
+        )
+
+    async def renew_lease(self, lease: Lease, lease_seconds: float) -> None:
+        await self._call(lambda connection: _renew_lease(connection, lease, lease_seconds))
+
+    async def complete_run(self, lease: Lease, output_json: str) -> None:
+        await self._call(
+            lambda connection: _finish_run(
+                connection, lease, RunStatus.COMPLETED, output_json=output_json, error_json=None
+            )
+        )
+
+    async def fail_run(self, lease: Lease, error_json: str) -> None:
+        await self._call(
+            lambda connection: _finish_run(
+                connection, lease, RunStatus.FAILED, output_json=None, error_json=error_json
+            )
+        )
+
+    async def release_run(self, lease: Lease) -> None:
+        await self._call(lambda connection: _release_run(connection, lease))
 
     async def close(self) -> None:
         await asyncio.get_running_loop().run_in_executor(self._executor, self._close_connection)
@@ -99,6 +126,80 @@ def _create_run(
             f"SELECT {_RUN_COLUMNS} FROM runs WHERE run_id = ?", (run_id,)
         ).fetchone()
     return _run_from_row(row)
+
+
+def _claim_run(
+    connection: sqlite3.Connection, run_id: str, owner: str, lease_seconds: float
+) -> Lease | None:
+    now = time.time()
+    with _write_transaction(connection):
+        row = connection.execute(
+            "UPDATE runs SET lease_owner = ?, lease_token = lease_token + 1, lease_expires_at = ? "
+            "WHERE run_id = ? AND status = ? "
+            "AND (lease_expires_at IS NULL OR lease_expires_at <= ?) "
+            "RETURNING lease_token",
+            (owner, now + lease_seconds, run_id, RunStatus.RUNNING.value, now),
+        ).fetchone()
+    if row is None:
+        return None
+    return Lease(run_id=run_id, owner=owner, token=row[0])
+
+
+def _renew_lease(connection: sqlite3.Connection, lease: Lease, lease_seconds: float) -> None:
+    with _write_transaction(connection):
+        cursor = connection.execute(
+            "UPDATE runs SET lease_expires_at = ? "
+            "WHERE run_id = ? AND lease_token = ? AND status = ?",
+            (time.time() + lease_seconds, lease.run_id, lease.token, RunStatus.RUNNING.value),
+        )
+        _require_lease_held(cursor, lease)
+
+
+def _finish_run(
+    connection: sqlite3.Connection,
+    lease: Lease,
+    status: RunStatus,
+    *,
+    output_json: str | None,
+    error_json: str | None,
+) -> None:
+    with _write_transaction(connection):
+        cursor = connection.execute(
+            "UPDATE runs SET status = ?, output_json = ?, error_json = ?, finished_at = ?, "
+            "lease_owner = NULL, lease_expires_at = NULL "
+            "WHERE run_id = ? AND lease_token = ? AND status = ?",
+            (
+                status.value,
+                output_json,
+                error_json,
+                _now_text(),
+                lease.run_id,
+                lease.token,
+                RunStatus.RUNNING.value,
+            ),
+        )
+        _require_lease_held(cursor, lease)
+
+
+def _release_run(connection: sqlite3.Connection, lease: Lease) -> None:
+    with _write_transaction(connection):
+        connection.execute(
+            "UPDATE runs SET lease_owner = NULL, lease_expires_at = NULL "
+            "WHERE run_id = ? AND lease_token = ?",
+            (lease.run_id, lease.token),
+        )
+
+
+def _require_lease_held(cursor: sqlite3.Cursor, lease: Lease) -> None:
+    if cursor.rowcount == 0:
+        raise _lease_lost(lease)
+
+
+def _lease_lost(lease: Lease) -> LeaseLostError:
+    return LeaseLostError(
+        f"{lease.owner!r} no longer holds run {lease.run_id!r}: "
+        "it was claimed by another worker or has finished"
+    )
 
 
 def _run_from_row(row: tuple[Any, ...]) -> RunRecord:

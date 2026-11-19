@@ -12,7 +12,10 @@ _MIGRATIONS: tuple[tuple[str, ...], ...] = (
             output_json TEXT,
             error_json TEXT,
             created_at TEXT NOT NULL,
-            finished_at TEXT
+            finished_at TEXT,
+            lease_owner TEXT,
+            lease_token INTEGER NOT NULL DEFAULT 0,
+            lease_expires_at REAL
         ) STRICT
         """,
     ),

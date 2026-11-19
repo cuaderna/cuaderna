@@ -20,3 +20,10 @@ class RunRecord:
     error_json: str | None
     created_at: datetime
     finished_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class Lease:
+    run_id: str
+    owner: str
+    token: int
