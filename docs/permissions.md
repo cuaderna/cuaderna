@@ -62,3 +62,5 @@ for entry in await engine.audit("fix-123"):
 - The chain covers the attempts, not the final status and output of the run.
 - Attempts recorded before this version have no hash, and their runs do not verify.
 - A run file exported with `redact=` does not verify, because the hashes cover the values as they were recorded. Run files written without it verify in another journal, also under `as_run_id`.
+
+Measured on the machine that recorded the [sample run](run-page.md): deciding on one of its step calls takes between 2 and 4 microseconds (median of 2,000 decisions per call), and verifying a run of 1,000 attempts takes about 8 milliseconds (median of 5).
