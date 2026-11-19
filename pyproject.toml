@@ -21,6 +21,9 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Typing :: Typed",
 ]
+dependencies = [
+    "pydantic>=2.9",
+]
 
 [project.urls]
 Repository = "https://github.com/cuaderna/cuaderna"
