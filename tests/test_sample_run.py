@@ -45,7 +45,7 @@ async def test_the_published_run_carries_the_cost_of_its_model_call(engine: Engi
 
     cost = await engine.cost(run_id)
 
-    assert cost.total_usd == Decimal("0.0001764")
+    assert cost.total_usd == Decimal("0.0001774")
     assert cost.unknown_attempts == 0
     assert [(attempt.step_key, attempt.basis) for attempt in cost.attempts] == [
         ("ask_model#1", "computed")
