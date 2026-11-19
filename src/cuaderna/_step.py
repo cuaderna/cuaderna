@@ -4,17 +4,36 @@ import inspect
 import json
 from collections.abc import Callable, Coroutine
 from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol, overload
 
-from ._errors import StepCallError, StepFailedError
+from ._errors import InvalidDefinitionError, StepCallError, StepFailedError, StepMismatchError
 from ._records import AttemptStatus, StepAttempt
 from ._run import RunContext, current_run
-from ._serde import Codec, build_codec, describe_error, hash_arguments
+from ._serde import (
+    Codec,
+    ErrorDetails,
+    build_codec,
+    describe_error,
+    hash_arguments,
+    load_error,
+)
 
 type _AsyncFunction[**P, R] = Callable[P, Coroutine[Any, Any, R]]
 
+_LONGEST_RETRY_DELAY_SECONDS = 60.0
+
 _inside_step: ContextVar[bool] = ContextVar("cuaderna_inside_step", default=False)
+
+
+@dataclass(frozen=True, slots=True)
+class _StepDefinition:
+    name: str
+    invoke: _AsyncFunction[..., Any]
+    codec: Codec[Any]
+    max_attempts: int
+    backoff_seconds: float
 
 
 class _StepDecorator(Protocol):
@@ -34,22 +53,44 @@ def step[**P, R](function: Callable[P, R], /) -> _AsyncFunction[P, R]: ...
 
 
 @overload
-def step(*, name: str | None = None) -> _StepDecorator: ...
+def step(
+    *, name: str | None = None, max_attempts: int = 1, backoff_seconds: float = 1.0
+) -> _StepDecorator: ...
 
 
-def step(function: Callable[..., Any] | None = None, /, *, name: str | None = None) -> Any:
+def step(
+    function: Callable[..., Any] | None = None,
+    /,
+    *,
+    name: str | None = None,
+    max_attempts: int = 1,
+    backoff_seconds: float = 1.0,
+) -> Any:
+    define = functools.partial(
+        _define, name=name, max_attempts=max_attempts, backoff_seconds=backoff_seconds
+    )
     if function is None:
-        return functools.partial(_define, name=name)
-    return _define(function, name=name)
+        return define
+    return define(function)
 
 
-def _define(function: Callable[..., Any], *, name: str | None) -> _AsyncFunction[..., Any]:
+def retry_delay(failed_attempt: int, backoff_seconds: float) -> float:
+    return min(backoff_seconds * 2 ** (failed_attempt - 1), _LONGEST_RETRY_DELAY_SECONDS)
+
+
+def _define(
+    function: Callable[..., Any], *, name: str | None, max_attempts: int, backoff_seconds: float
+) -> _AsyncFunction[..., Any]:
     step_name = name or function.__name__
-    codec = build_codec(function, step_name)
+    if max_attempts < 1:
+        raise InvalidDefinitionError(f"{step_name}: max_attempts has to be at least 1")
     if inspect.iscoroutinefunction(function):
         invoke: _AsyncFunction[..., Any] = function
     else:
         invoke = functools.partial(asyncio.to_thread, function)
+    definition = _StepDefinition(
+        step_name, invoke, build_codec(function, step_name), max_attempts, backoff_seconds
+    )
 
     @functools.wraps(function)
     def call(*args: object, **kwargs: object) -> Coroutine[Any, Any, object]:
@@ -59,42 +100,72 @@ def _define(function: Callable[..., Any], *, name: str | None) -> _AsyncFunction
         if _inside_step.get():
             raise StepCallError(f"step {step_name!r} was called inside another step")
         step_key = context.reserve_step_key(step_name)
-        return _execute(context, step_name, step_key, invoke, codec, args, kwargs)
+        return _execute(context, definition, step_key, args, kwargs)
 
     return call
 
 
 async def _execute(
     context: RunContext,
-    name: str,
+    definition: _StepDefinition,
     step_key: str,
-    invoke: _AsyncFunction[..., Any],
-    codec: Codec[Any],
     args: tuple[object, ...],
     kwargs: dict[str, object],
 ) -> object:
-    args_json = codec.dump_arguments(args, kwargs)
-    started_at = datetime.now(UTC)
-    token = _inside_step.set(True)
-    try:
-        result_json = codec.dump_result(await invoke(*args, **kwargs))
-    except Exception as error:
-        details = describe_error(error)
-        failed = _attempt(step_key, name, args_json, started_at, error_json=json.dumps(details))
-        await context.storage.record_attempt(context.lease, failed)
-        raise StepFailedError(
-            step_key, details["type"], details["message"], details["traceback"]
-        ) from error
-    finally:
-        _inside_step.reset(token)
-    succeeded = _attempt(step_key, name, args_json, started_at, result_json=result_json)
-    await context.storage.record_attempt(context.lease, succeeded)
-    return codec.load_result(result_json)
+    args_json = definition.codec.dump_arguments(args, kwargs)
+    first_attempt = 1
+    recorded = context.recorded.get(step_key)
+    if recorded is not None:
+        if recorded.args_hash != hash_arguments(args_json):
+            raise StepMismatchError(
+                f"step {step_key!r} was recorded with other arguments: "
+                f"{recorded.args_json} then, {args_json} now"
+            )
+        if recorded.result_json is not None:
+            return definition.codec.load_result(recorded.result_json)
+        if recorded.error_json is not None:
+            details = load_error(recorded.error_json)
+            if details["terminal"] or recorded.attempt >= definition.max_attempts:
+                raise _step_failed(step_key, details)
+        first_attempt = recorded.attempt + 1
+    for attempt in range(first_attempt, definition.max_attempts + 1):
+        started_at = datetime.now(UTC)
+        token = _inside_step.set(True)
+        try:
+            result_json = definition.codec.dump_result(await definition.invoke(*args, **kwargs))
+        except Exception as error:
+            details = describe_error(error)
+            failed = _attempt(
+                step_key,
+                definition.name,
+                attempt,
+                args_json,
+                started_at,
+                error_json=json.dumps(details),
+            )
+            await context.storage.record_attempt(context.lease, failed)
+            if details["terminal"] or attempt == definition.max_attempts:
+                raise _step_failed(step_key, details) from error
+            await asyncio.sleep(retry_delay(attempt, definition.backoff_seconds))
+        else:
+            succeeded = _attempt(
+                step_key, definition.name, attempt, args_json, started_at, result_json=result_json
+            )
+            await context.storage.record_attempt(context.lease, succeeded)
+            return definition.codec.load_result(result_json)
+        finally:
+            _inside_step.reset(token)
+    raise StepMismatchError(f"step {step_key!r} has more recorded attempts than it allows now")
+
+
+def _step_failed(step_key: str, details: ErrorDetails) -> StepFailedError:
+    return StepFailedError(step_key, details["type"], details["message"], details["traceback"])
 
 
 def _attempt(
     step_key: str,
     name: str,
+    attempt: int,
     args_json: str,
     started_at: datetime,
     *,
@@ -104,7 +175,7 @@ def _attempt(
     return StepAttempt(
         step_key=step_key,
         name=name,
-        attempt=1,
+        attempt=attempt,
         status=AttemptStatus.OK if error_json is None else AttemptStatus.ERROR,
         args_hash=hash_arguments(args_json),
         args_json=args_json,

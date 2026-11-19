@@ -33,3 +33,15 @@ class StepFailedError(CuadernaError):
         self.error_type = error_type
         self.message = message
         self.traceback = traceback
+
+
+class StepMismatchError(CuadernaError):
+    pass
+
+
+class RunMismatchError(CuadernaError):
+    pass
+
+
+class TerminalError(CuadernaError):
+    pass

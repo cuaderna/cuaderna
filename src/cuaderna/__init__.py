@@ -4,10 +4,13 @@ from ._errors import (
     InvalidDefinitionError,
     JournalConflictError,
     LeaseLostError,
+    RunMismatchError,
     RunNotAvailableError,
     SchemaVersionError,
     StepCallError,
     StepFailedError,
+    StepMismatchError,
+    TerminalError,
 )
 from ._run import run
 from ._step import step
@@ -18,10 +21,13 @@ __all__ = [
     "InvalidDefinitionError",
     "JournalConflictError",
     "LeaseLostError",
+    "RunMismatchError",
     "RunNotAvailableError",
     "SchemaVersionError",
     "StepCallError",
     "StepFailedError",
+    "StepMismatchError",
+    "TerminalError",
     "run",
     "step",
 ]
