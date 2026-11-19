@@ -32,6 +32,7 @@ class Engine:
         self._owner = uuid4().hex
         self._lease_seconds = lease_seconds
         self._claim_timeout_seconds = claim_timeout_seconds
+        self._giving_back: set[asyncio.Future[None]] = set()
 
     async def execute[**P, R](
         self, run_id: str, run: RunDefinition[P, R], /, *args: P.args, **kwargs: P.kwargs
@@ -83,10 +84,16 @@ class Engine:
         try:
             return await asyncio.shield(claim)
         except asyncio.CancelledError:
-            [lease] = await asyncio.gather(claim, return_exceptions=True)
-            if isinstance(lease, Lease):
-                await self._storage.release_run(lease)
+            giving_back = asyncio.ensure_future(self._give_back(claim))
+            self._giving_back.add(giving_back)
+            giving_back.add_done_callback(self._giving_back.discard)
+            await asyncio.shield(giving_back)
             raise
+
+    async def _give_back(self, claim: asyncio.Future[Lease | None]) -> None:
+        [lease] = await asyncio.gather(claim, return_exceptions=True)
+        if isinstance(lease, Lease):
+            await self._storage.release_run(lease)
 
     async def _drive[**P, R](
         self, run: RunDefinition[P, R], lease: Lease, /, *args: P.args, **kwargs: P.kwargs
@@ -121,4 +128,5 @@ class Engine:
             await self._storage.renew_lease(lease, self._lease_seconds)
 
     async def close(self) -> None:
+        await asyncio.gather(*self._giving_back, return_exceptions=True)
         await self._storage.close()
