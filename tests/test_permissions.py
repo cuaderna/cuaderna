@@ -8,6 +8,7 @@ import pytest
 
 import cuaderna
 from cuaderna import (
+    ApprovalRequiredError,
     AttemptStatus,
     Engine,
     PermissionDeniedError,
@@ -237,3 +238,35 @@ async def test_a_retry_after_a_resume_is_checked_on_its_own(engine: Engine) -> N
     attempts = await engine.steps("run-1")
     assert [attempt.attempt for attempt in attempts] == [1, 2]
     assert json.loads(attempts[1].error_json or "")["type"] == "PermissionDeniedError"
+
+
+async def test_an_ask_stops_the_run_without_running_or_recording_the_step(engine: Engine) -> None:
+    asking = call.with_policy(policy_of(rule("needs-review", "ask")))
+    with pytest.raises(ApprovalRequiredError) as raised:
+        await engine.execute("run-1", asking, ["write_file"])
+    with pytest.raises(ApprovalRequiredError):
+        await engine.execute("run-1", asking, ["write_file"])
+
+    assert (raised.value.run_id, raised.value.step_key, raised.value.name) == (
+        "run-1",
+        "write_file#1",
+        "write_file",
+    )
+    assert bodies_that_ran == []
+    assert await engine.steps("run-1") == []
+    assert (await engine.run_record("run-1")).status is RunStatus.RUNNING
+
+    assert await engine.execute("run-1", call.with_policy(ALLOW_ALL), ["write_file"]) == "went on"
+    assert bodies_that_ran == ["write_file"]
+
+
+async def test_an_ask_swallowed_by_the_run_is_raised_at_the_end(engine: Engine) -> None:
+    asking = call.with_policy(policy_of(rule("needs-review", "ask")))
+
+    with pytest.raises(ApprovalRequiredError):
+        await engine.execute("run-1", asking, ["write_file", "write_file"], True)
+
+    assert (await engine.run_record("run-1")).status is RunStatus.RUNNING
+    assert len(refusals) == 2
+    assert refusals[0] is refusals[1]
+    assert bodies_that_ran == []
