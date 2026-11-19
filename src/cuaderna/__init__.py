@@ -12,6 +12,7 @@ from ._errors import (
     StepMismatchError,
     TerminalError,
 )
+from ._library import new_id, now, random
 from ._run import run
 from ._step import step
 
@@ -28,6 +29,9 @@ __all__ = [
     "StepFailedError",
     "StepMismatchError",
     "TerminalError",
+    "new_id",
+    "now",
+    "random",
     "run",
     "step",
 ]
