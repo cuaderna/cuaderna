@@ -14,6 +14,8 @@ from cuaderna.storage._sqlite import SqliteStorage
 
 from .contract import StorageContract
 
+_VERSION_1_JOURNAL = Path(__file__).parent / "journal_v1.sql"
+
 _ENDLESS_WRITER = """
 import asyncio
 import sys
@@ -79,6 +81,38 @@ async def test_a_journal_from_a_newer_library_is_refused(tmp_path: Path) -> None
         await storage.create_run("run", "fix_tests", "{}", None)
 
     await storage.close()
+
+
+async def test_a_version_1_journal_is_migrated_in_place_and_keeps_its_attempts(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "journal.db"
+    connection = sqlite3.connect(path)
+    connection.executescript(_VERSION_1_JOURNAL.read_text(encoding="utf-8"))
+    connection.close()
+    storage = SqliteStorage(path)
+
+    old_attempts = await storage.load_attempts("run-1")
+    await storage.create_run("run-2", "fix_tests", "{}", None)
+    lease = await storage.claim_run("run-2", "worker", 60)
+    assert lease is not None
+    await storage.record_attempt(lease, old_attempts[0])
+    await storage.close()
+
+    assert [
+        (attempt.step_key, attempt.attempt, attempt.lease_token, attempt.annotations_json)
+        for attempt in old_attempts
+    ] == [
+        ("flaky_double#1", 1, None, None),
+        ("flaky_double#1", 2, None, None),
+        ("flaky_double#2", 1, None, None),
+    ]
+    connection = sqlite3.connect(path)
+    assert connection.execute("PRAGMA user_version").fetchone() == (2,)
+    assert connection.execute(
+        "SELECT lease_token FROM step_attempts WHERE run_id = 'run-2'"
+    ).fetchall() == [(lease.token,)]
+    connection.close()
 
 
 async def test_several_connections_can_open_a_new_journal_at_once(tmp_path: Path) -> None:

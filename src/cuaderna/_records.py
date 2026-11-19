@@ -39,6 +39,8 @@ class StepAttempt:
     error_json: str | None
     started_at: datetime
     finished_at: datetime
+    lease_token: int | None = None
+    annotations_json: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

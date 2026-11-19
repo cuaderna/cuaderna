@@ -36,6 +36,10 @@ _MIGRATIONS: tuple[tuple[str, ...], ...] = (
         ) STRICT
         """,
     ),
+    (
+        "ALTER TABLE step_attempts ADD COLUMN lease_token INTEGER",
+        "ALTER TABLE step_attempts ADD COLUMN annotations_json TEXT",
+    ),
 )
 
 LATEST_VERSION = len(_MIGRATIONS)
