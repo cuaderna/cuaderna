@@ -66,6 +66,10 @@ class PriceTableError(CuadernaError):
     pass
 
 
+class PolicyError(CuadernaError):
+    pass
+
+
 class BudgetExceededError(CuadernaError):
     def __init__(self, run_id: str, budget_usd: Decimal, spent_usd: Decimal) -> None:
         super().__init__(
