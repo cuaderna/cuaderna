@@ -8,7 +8,7 @@ from typing import Any, Protocol, overload
 
 from ._errors import InvalidDefinitionError
 from ._records import Lease, StepAttempt
-from ._serde import Codec, build_codec
+from ._serde import Codec, build_codec, receiver_of
 from .storage import Storage
 
 
@@ -68,6 +68,8 @@ def _define(
     name = function.__name__
     if not inspect.iscoroutinefunction(function):
         raise InvalidDefinitionError(f"{name}: a run has to be an async function")
+    if receiver_of(inspect.signature(function)) is not None:
+        raise InvalidDefinitionError(f"{name}: a run cannot be a method")
     return RunDefinition(name, function, build_codec(function, name), code_version)
 
 

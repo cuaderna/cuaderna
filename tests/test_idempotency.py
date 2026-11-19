@@ -1,7 +1,7 @@
 import pytest
 
 import cuaderna
-from cuaderna import Engine, StepCallError
+from cuaderna import Engine, InvalidDefinitionError, StepCallError
 
 keys_seen: list[str] = []
 
@@ -61,3 +61,12 @@ async def test_the_key_only_exists_inside_a_step(engine: Engine) -> None:
         cuaderna.idempotency_key()
     with pytest.raises(StepCallError):
         await engine.execute("order-7", flow)
+
+
+@pytest.mark.parametrize("name", ["pay:now", "pay#1"])
+def test_a_step_name_cannot_hold_the_separators_of_the_key(name: str) -> None:
+    with pytest.raises(InvalidDefinitionError, match="cannot contain"):
+
+        @cuaderna.step(name=name)
+        async def pay() -> None:  # pyright: ignore[reportUnusedFunction]
+            return None
