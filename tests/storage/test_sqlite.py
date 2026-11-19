@@ -81,6 +81,20 @@ async def test_a_journal_from_a_newer_library_is_refused(tmp_path: Path) -> None
     await storage.close()
 
 
+async def test_several_connections_can_open_a_new_journal_at_once(tmp_path: Path) -> None:
+    for round_number in range(10):
+        path = tmp_path / f"journal-{round_number}.db"
+        storages = [SqliteStorage(path) for _ in range(8)]
+
+        records = await asyncio.gather(
+            *(storage.create_run("run", "fix_tests", "{}", None) for storage in storages)
+        )
+
+        assert {record.run_id for record in records} == {"run"}
+        for storage in storages:
+            await storage.close()
+
+
 async def _load_attempts(path: Path) -> list[StepAttempt]:
     storage = SqliteStorage(path)
     attempts = await storage.load_attempts("run")
