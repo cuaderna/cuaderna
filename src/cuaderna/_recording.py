@@ -6,8 +6,8 @@ from decimal import Decimal
 
 from pydantic import JsonValue
 
-from ._cost import run_cost, with_cost
-from ._errors import BudgetExceededError, StepMismatchError
+from ._cost import AttemptCost, run_cost, with_cost
+from ._errors import BudgetExceededError, CostUnknownError, StepMismatchError
 from ._prices import PriceTable
 from ._records import AttemptStatus, Lease, StepAttempt
 from ._run import StepDefinition, StepKeys
@@ -21,16 +21,25 @@ class Budget:
     run_id: str
     limit_usd: Decimal
     spent_usd: Decimal
-    exceeded: BudgetExceededError | None = None
+    unknown: AttemptCost | None = None
+    stopped: BudgetExceededError | CostUnknownError | None = None
 
     def check(self) -> None:
-        if self.exceeded is None and self.spent_usd >= self.limit_usd:
-            self.exceeded = BudgetExceededError(self.run_id, self.limit_usd, self.spent_usd)
-        if self.exceeded is not None:
-            raise self.exceeded
+        if self.stopped is None:
+            if self.unknown is not None:
+                self.stopped = CostUnknownError(
+                    self.run_id, self.unknown.step_key, self.unknown.attempt, self.unknown.reason
+                )
+            elif self.spent_usd >= self.limit_usd:
+                self.stopped = BudgetExceededError(self.run_id, self.limit_usd, self.spent_usd)
+        if self.stopped is not None:
+            raise self.stopped
 
     def add(self, attempt: StepAttempt) -> None:
-        self.spent_usd += run_cost([attempt]).total_usd
+        cost = run_cost([attempt])
+        self.spent_usd += cost.total_usd
+        if cost.unknown_attempts and self.unknown is None:
+            self.unknown = cost.attempts[0]
 
 
 @dataclass(slots=True)
