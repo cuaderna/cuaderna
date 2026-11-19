@@ -6,6 +6,7 @@ import subprocess
 import sys
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -78,6 +79,7 @@ def ask_model(model: str, sources: dict[str, str], test_output: str) -> FileEdit
     )
     with urllib.request.urlopen(request, timeout=300) as response:
         reply = json.load(response)
+    cuaderna.annotate(_model_call_facts(model, reply))
     return FileEdit.model_validate_json(reply["message"]["content"])
 
 
@@ -105,6 +107,24 @@ async def fix_tests(repo: str, model: str, max_rounds: int) -> Summary:
 
 def _editable_files(repo: Path) -> list[Path]:
     return [path for path in repo.glob("*.py") if not path.name.startswith("test_")]
+
+
+def _model_call_facts(requested_model: str, reply: dict[str, Any]) -> dict[str, Any]:
+    facts: dict[str, Any] = {
+        "gen_ai.provider.name": "ollama",
+        "gen_ai.request.model": requested_model,
+        "gen_ai.response.model": reply["model"],
+        "provider.usage": {name: value for name, value in reply.items() if name != "message"},
+    }
+    if "done_reason" in reply:
+        facts["gen_ai.response.finish_reasons"] = [reply["done_reason"]]
+    if "prompt_eval_count" in reply:
+        facts["gen_ai.usage.input_tokens"] = reply["prompt_eval_count"]
+    if "prompt_eval_cached_count" in reply:
+        facts["gen_ai.usage.cache_read.input_tokens"] = reply["prompt_eval_cached_count"]
+    if "eval_count" in reply:
+        facts["gen_ai.usage.output_tokens"] = reply["eval_count"]
+    return facts
 
 
 async def _main(run_id: str, workdir: Path, model: str, max_rounds: int) -> None:
