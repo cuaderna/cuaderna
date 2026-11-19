@@ -22,6 +22,14 @@ class RunNotAvailableError(CuadernaError):
     pass
 
 
+class RunFailedError(RunNotAvailableError):
+    pass
+
+
+class RunHeldError(RunNotAvailableError):
+    pass
+
+
 class StepCallError(CuadernaError):
     pass
 
