@@ -2,6 +2,7 @@ from . import usage
 from ._cost import AttemptCost, RunCost
 from ._engine import Engine
 from ._errors import (
+    ApprovalRequiredError,
     BudgetExceededError,
     CostUnknownError,
     CuadernaError,
@@ -32,6 +33,7 @@ from ._run import run
 from ._step import annotate, idempotency_key, step
 
 __all__ = [
+    "ApprovalRequiredError",
     "AttemptCost",
     "AttemptStatus",
     "BudgetExceededError",

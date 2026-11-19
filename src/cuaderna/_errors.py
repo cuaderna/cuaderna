@@ -104,6 +104,14 @@ class CostUnknownError(CuadernaError):
         self.reason = reason
 
 
+class ApprovalRequiredError(CuadernaError):
+    def __init__(self, run_id: str, step_key: str, name: str) -> None:
+        super().__init__(f"run {run_id!r} needs an approval to run step {step_key!r}")
+        self.run_id = run_id
+        self.step_key = step_key
+        self.name = name
+
+
 class RunFileError(CuadernaError):
     pass
 

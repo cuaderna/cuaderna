@@ -14,7 +14,13 @@ from ._authorization import (
     with_authorization,
 )
 from ._cost import AttemptCost, run_cost, with_cost
-from ._errors import BudgetExceededError, CostUnknownError, PermissionDeniedError, StepMismatchError
+from ._errors import (
+    ApprovalRequiredError,
+    BudgetExceededError,
+    CostUnknownError,
+    PermissionDeniedError,
+    StepMismatchError,
+)
 from ._library import LIBRARY_STEPS
 from ._policy import Decision, Policy
 from ._prices import PriceTable
@@ -24,7 +30,7 @@ from ._serde import describe_error, hash_arguments, load_error
 from ._step import ActiveStep, active_step, retry_delay, step_failed
 from .storage import Storage
 
-StopError = BudgetExceededError | CostUnknownError
+StopError = BudgetExceededError | CostUnknownError | ApprovalRequiredError
 
 
 @dataclass(slots=True)
@@ -135,8 +141,10 @@ class RecordingContext:
         if self.policy is None or definition.name in LIBRARY_STEPS:
             return None
         decision = self.policy.decide(definition.name, args_json)
+        if decision.effect == "ask":
+            self._stop(ApprovalRequiredError(self.lease.run_id, step_key, definition.name))
         authorization = authorization_annotation(decision, self.policy, self.actor)
-        if decision.effect != "allow":
+        if decision.effect == "deny":
             await self._deny(definition, step_key, attempt, args_json, decision, authorization)
         return authorization
 

@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from ._cost import RunCost, cost_for_budget, repriced_cost, run_cost
 from ._errors import (
+    ApprovalRequiredError,
     BudgetExceededError,
     CostUnknownError,
     InvalidDefinitionError,
@@ -221,7 +222,7 @@ class Engine:
             output_json = run.codec.dump_result(output)
         except LeaseLostError:
             raise
-        except (StepMismatchError, BudgetExceededError, CostUnknownError):
+        except (StepMismatchError, BudgetExceededError, CostUnknownError, ApprovalRequiredError):
             await self._storage.release_run(lease)
             raise
         except Exception as error:
