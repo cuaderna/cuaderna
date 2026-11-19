@@ -221,17 +221,17 @@ class Engine:
             await self._storage.release_run(lease)
             raise
         except Exception as error:
-            if budget is not None and budget.stopped is not None:
+            if context.stopped is not None:
                 await self._storage.release_run(lease)
-                raise budget.stopped from error
+                raise context.stopped from error
             await self._storage.fail_run(lease, json.dumps(describe_error(error)))
             raise
         except BaseException:
             await self._storage.release_run(lease)
             raise
-        if budget is not None and budget.stopped is not None:
+        if context.stopped is not None:
             await self._storage.release_run(lease)
-            raise budget.stopped
+            raise context.stopped
         await self._storage.complete_run(lease, output_json)
         return run.codec.load_result(output_json)
 
