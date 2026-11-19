@@ -1,11 +1,9 @@
-import asyncio
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import cuaderna
-from cuaderna import Engine, RunNotAvailableError
+from cuaderna import Engine
 
 _STEPS = 300
 _WORKER_LEASE_SECONDS = 0.5
@@ -73,7 +71,7 @@ async def test_a_killed_run_resumes_and_repeats_at_most_the_step_in_flight(
 
     engine = Engine(journal)
     try:
-        total = await _execute_once_the_dead_lease_expires(engine, str(effects))
+        total = await engine.execute("run", count_to, str(effects), _STEPS)
     finally:
         await engine.close()
 
@@ -82,14 +80,3 @@ async def test_a_killed_run_resumes_and_repeats_at_most_the_step_in_flight(
     assert 10 <= len(marks_before_resume) < _STEPS
     assert sorted(set(marks)) == list(range(_STEPS))
     assert len(marks) - _STEPS <= 1
-
-
-async def _execute_once_the_dead_lease_expires(engine: Engine, effects: str) -> int:
-    deadline = time.monotonic() + 10 * _WORKER_LEASE_SECONDS
-    while True:
-        try:
-            return await engine.execute("run", count_to, effects, _STEPS)
-        except RunNotAvailableError:
-            if time.monotonic() > deadline:
-                raise
-            await asyncio.sleep(_WORKER_LEASE_SECONDS / 5)
