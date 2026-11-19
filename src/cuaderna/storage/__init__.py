@@ -1,6 +1,13 @@
 from typing import Protocol
 
-from cuaderna._records import Lease, RunRecord, StepAttempt
+from cuaderna._records import (
+    Approval,
+    ApprovalAnswer,
+    ApprovalRequest,
+    Lease,
+    RunRecord,
+    StepAttempt,
+)
 
 
 class Storage(Protocol):
@@ -13,6 +20,14 @@ class Storage(Protocol):
     async def renew_lease(self, lease: Lease, lease_seconds: float) -> None: ...
 
     async def record_attempt(self, lease: Lease, attempt: StepAttempt) -> None: ...
+
+    async def request_approval(self, lease: Lease, request: ApprovalRequest) -> None: ...
+
+    async def answer_approval(
+        self, run_id: str, step_key: str, args_hash: str, answer: ApprovalAnswer
+    ) -> None: ...
+
+    async def list_approvals(self, run_id: str | None) -> list[Approval]: ...
 
     async def load_attempts(self, run_id: str) -> list[StepAttempt]: ...
 
