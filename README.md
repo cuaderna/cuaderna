@@ -6,7 +6,7 @@ A *cuaderna* is a rib of a ship's hull: the structure underneath that holds ever
 
 ## Status
 
-Early development. The first goal below, resuming after a crash, is implemented on `main`. The package on PyPI is still a placeholder, so for now it has to be installed from this repository.
+Early development. The first goal below, resuming after a crash, is implemented on `main`, and so is the first part of the second: replaying a recorded run from code. The package on PyPI is still a placeholder, so for now it has to be installed from this repository.
 
 ## What it is
 
@@ -20,7 +20,7 @@ Every step is written to a journal with its result as soon as it finishes. Every
 - **Permissions and audit.** Tools run with explicit permissions and every call is recorded.
 - **Fault injection.** Recorded runs can be used to test how an agent reacts to a tool that fails or a malformed response.
 
-These are goals, listed in the order they will be built. Only the first one is implemented.
+These are goals, listed in the order they will be built. The first one is implemented. Replay works from code; turning a run into a file and showing it on a page are not there yet.
 
 ## Usage
 
@@ -65,6 +65,14 @@ The code between steps runs again on every resume and has to decide the same thi
 - After a change that makes old runs take a different path, set `@cuaderna.run(code_version="2")`. An unfinished run started by another version is refused instead of replayed.
 
 A method can be a step. Its `self` is not stored, so whatever the step reads from the object has to be the same on every execution, like the rest of the code between steps. A run has to be a plain function.
+
+A recorded run can be replayed. The run function executes again with the input it had, and every step returns what the journal has for it:
+
+```python
+rounds = await engine.replay("fix-123", fix_tests)
+```
+
+No step executes, nothing is written and the run is not claimed, so it works on a finished, failed or unfinished run, also while another process is executing it. A replay is strict: it raises `ReplayDivergedError` if the code asks for a step the journal does not have or has with other arguments, if it leaves recorded steps unused, or if it returns something else than the run did. That makes a recorded run a test that fails when the agent takes another path. Only steps are replayed: the code between them runs for real, so it must not have effects of its own. The code version is not checked, because replaying old runs against new code is the point.
 
 The journal is a SQLite file. It has to be on a local disk, not on a network drive.
 
