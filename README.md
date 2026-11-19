@@ -161,6 +161,24 @@ except cuaderna.BudgetExceededError as stop:
 - Nothing is reserved before a call, because the size of an answer is not known beforehand. A run can go past its ceiling by the cost of the steps that were already in flight when it was crossed: one, or as many as it started together with `asyncio.gather`. A call in flight when the process dies leaves no attempt in the journal, so it was paid and is not in the sum.
 - `with_budget` returns the same run with another ceiling, for limits that depend on who asks. A budget needs an engine with a price table; without one `execute` raises `InvalidDefinitionError`.
 
+### What another model would have cost
+
+```python
+cost = await engine.cost("fix-123")
+on_a_larger_model = await engine.reprice("fix-123", provider="anthropic", model="claude-opus-4-5")
+print(cost.total_usd, on_a_larger_model.total_usd)
+```
+
+`reprice` returns the same shape as `cost`, with every model call of the run priced at the base rates of another model in the engine's table, from the usage stored with each attempt. The journal is not touched. Each of those attempts has the basis `repriced`, and a model the table does not have raises `PriceTableError`.
+
+It is an estimate, and a rough one:
+
+- The same text is not the same number of tokens on another model. Tokenizers differ between providers and between versions of one provider.
+- A cache hit on one model is not a hit on another. Cached tokens are priced at the other model's cache rates as if the cache had behaved the same, and a call that used a kind of token or request the other model has no rate for comes back as unknown.
+- No variant is applied: batch, priority and long-context prices of the other model are ignored.
+- Another model would have answered something else, and the run would have taken other steps.
+- A step that is not a model call keeps the cost it reported.
+
 ## Look at a run
 
 [site](site) is a static page that shows a run file: the attempts in the order they were recorded, grouped by the process that wrote them, with the arguments, result, error and annotations of each one. It has no build step and no server side. Serve the folder and open it:

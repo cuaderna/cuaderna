@@ -151,46 +151,42 @@ class PriceTable:
         return cls(document)  # pyright: ignore[reportUnknownArgumentType]
 
     def price(self, annotations: Mapping[str, JsonValue]) -> CallCost | UnknownCost:
-        try:
-            call = _ModelCall.model_validate(annotations)
-        except ValidationError:
-            return UnknownCost("the usage in the annotations cannot be read")
+        call = _read_call(annotations)
+        if isinstance(call, UnknownCost):
+            return call
         if call.provider is None:
             return UnknownCost("the annotations name no provider")
-        if call.input_tokens is None or call.output_tokens is None:
-            return UnknownCost("the response reported no usage")
+        usage = _read_usage(call)
+        if isinstance(usage, UnknownCost):
+            return usage
         found = self._find(call.provider, call.response_model, call.requested_model)
         if found is None:
             asked_for = call.response_model or call.requested_model
             return UnknownCost(f"the price table has no {call.provider} model named {asked_for!r}")
         name, prices = found
-        variant = _first_matching(prices.variants, call.conditions, call.input_tokens)
+        variant = _first_matching(prices.variants, call.conditions, usage[0])
         rates = prices.rates if variant is None else variant.rates
-        uncached_tokens = call.input_tokens - call.cache_read_tokens - call.cache_write_tokens
-        if uncached_tokens < 0:
-            return UnknownCost("the cached tokens add up to more than the input")
-        if sum(call.cache_writes_by_lifetime.values()) != call.cache_write_tokens:
-            return UnknownCost("the cache writes are not broken down by lifetime")
-        amounts = {
-            "input": _amount(uncached_tokens, rates.input, _TOKENS_PER_RATE),
-            "cache_read": _amount(call.cache_read_tokens, rates.cache_read, _TOKENS_PER_RATE),
-            "cache_write": _amount_by_kind(
-                call.cache_writes_by_lifetime, rates.cache_write, _TOKENS_PER_RATE
-            ),
-            "output": _amount(call.output_tokens, rates.output, _TOKENS_PER_RATE),
-            "requests": _amount_by_kind(call.requests, rates.requests, _REQUESTS_PER_RATE),
-        }
-        parts: dict[str, Decimal] = {}
-        for part, amount in amounts.items():
-            if amount is None:
-                return UnknownCost(f"the price table has no {part} rate for this call")
-            parts[part] = amount
-        return CallCost(
-            usd=sum(parts.values(), Decimal(0)),
-            model=name,
-            variant=None if variant is None else variant.when,
-            parts=parts,
-        )
+        return _price_call(call, usage, name, rates, None if variant is None else variant.when)
+
+    def price_as(
+        self, annotations: Mapping[str, JsonValue], *, provider: str, model: str
+    ) -> CallCost | UnknownCost:
+        call = _read_call(annotations)
+        if isinstance(call, UnknownCost):
+            return call
+        usage = _read_usage(call)
+        if isinstance(usage, UnknownCost):
+            return usage
+        return _price_call(call, usage, model, self._base_prices(provider, model).rates, None)
+
+    def require_model(self, provider: str, model: str) -> None:
+        self._base_prices(provider, model)
+
+    def _base_prices(self, provider: str, model: str) -> _ModelPrices:
+        found = self._find(provider, model)
+        if found is None:
+            raise PriceTableError(f"the price table has no {provider} model named {model!r}")
+        return found[1]
 
     def _find(self, provider: str, *names: str | None) -> tuple[str, _ModelPrices] | None:
         for name in names:
@@ -200,6 +196,54 @@ class PriceTable:
             if prices is not None:
                 return name, prices
         return None
+
+
+def _read_call(annotations: Mapping[str, JsonValue]) -> _ModelCall | UnknownCost:
+    try:
+        return _ModelCall.model_validate(annotations)
+    except ValidationError:
+        return UnknownCost("the usage in the annotations cannot be read")
+
+
+def _read_usage(call: _ModelCall) -> tuple[int, int] | UnknownCost:
+    if call.input_tokens is None or call.output_tokens is None:
+        return UnknownCost("the response reported no usage")
+    return call.input_tokens, call.output_tokens
+
+
+def _price_call(
+    call: _ModelCall,
+    usage: tuple[int, int],
+    name: str,
+    rates: _Rates,
+    variant: Mapping[str, JsonValue] | None,
+) -> CallCost | UnknownCost:
+    input_tokens, output_tokens = usage
+    uncached_tokens = input_tokens - call.cache_read_tokens - call.cache_write_tokens
+    if uncached_tokens < 0:
+        return UnknownCost("the cached tokens add up to more than the input")
+    if sum(call.cache_writes_by_lifetime.values()) != call.cache_write_tokens:
+        return UnknownCost("the cache writes are not broken down by lifetime")
+    amounts = {
+        "input": _amount(uncached_tokens, rates.input, _TOKENS_PER_RATE),
+        "cache_read": _amount(call.cache_read_tokens, rates.cache_read, _TOKENS_PER_RATE),
+        "cache_write": _amount_by_kind(
+            call.cache_writes_by_lifetime, rates.cache_write, _TOKENS_PER_RATE
+        ),
+        "output": _amount(output_tokens, rates.output, _TOKENS_PER_RATE),
+        "requests": _amount_by_kind(call.requests, rates.requests, _REQUESTS_PER_RATE),
+    }
+    parts: dict[str, Decimal] = {}
+    for part, amount in amounts.items():
+        if amount is None:
+            return UnknownCost(f"the price table has no {part} rate for this call")
+        parts[part] = amount
+    return CallCost(
+        usd=sum(parts.values(), Decimal(0)),
+        model=name,
+        variant=variant,
+        parts=parts,
+    )
 
 
 def _first_matching(

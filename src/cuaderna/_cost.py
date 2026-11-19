@@ -1,4 +1,3 @@
-import dataclasses
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -6,7 +5,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field, JsonValue, ValidationError
 
-from ._prices import PriceTable, UnknownCost
+from ._prices import CallCost, PriceTable, UnknownCost
 from ._records import StepAttempt
 
 _COST_KEY = "cuaderna.cost"
@@ -69,6 +68,23 @@ def cost_for_budget(attempts: list[StepAttempt], prices: PriceTable) -> RunCost:
     return _total(costs)
 
 
+def repriced_cost(
+    attempts: list[StepAttempt], prices: PriceTable, *, provider: str, model: str
+) -> RunCost:
+    prices.require_model(provider, model)
+    costs: list[AttemptCost] = []
+    for attempt in attempts:
+        cost = _attempt_cost(attempt)
+        if attempt.annotations_json is not None:
+            annotations: dict[str, JsonValue] = json.loads(attempt.annotations_json)
+            if _is_model_call(annotations):
+                priced = prices.price_as(annotations, provider=provider, model=model)
+                cost = _from_priced(attempt, priced, "repriced")
+        if cost is not None:
+            costs.append(cost)
+    return _total(costs)
+
+
 def _total(costs: list[AttemptCost]) -> RunCost:
     total = Decimal(0)
     unknown = 0
@@ -86,14 +102,17 @@ def _priced_now(attempt: StepAttempt, unknown: AttemptCost, prices: PriceTable) 
     annotations: dict[str, JsonValue] = json.loads(attempt.annotations_json)
     if not _is_model_call(annotations):
         return unknown
-    priced = prices.price(annotations)
+    return _from_priced(attempt, prices.price(annotations), "computed")
+
+
+def _from_priced(attempt: StepAttempt, priced: CallCost | UnknownCost, basis: str) -> AttemptCost:
     if isinstance(priced, UnknownCost):
-        return dataclasses.replace(unknown, reason=priced.reason)
+        return _unknown(attempt, priced.reason)
     return AttemptCost(
         step_key=attempt.step_key,
         attempt=attempt.attempt,
         usd=priced.usd,
-        basis="computed",
+        basis=basis,
         model=priced.model,
         parts=priced.parts,
         reason=None,
