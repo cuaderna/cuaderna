@@ -213,3 +213,12 @@ def test_a_run_has_to_be_an_async_function() -> None:
         @cuaderna.run  # pyright: ignore[reportArgumentType]
         def synchronous() -> None:  # pyright: ignore[reportUnusedFunction]
             return None
+
+
+def test_a_run_cannot_be_a_method() -> None:
+    with pytest.raises(InvalidDefinitionError, match="cannot be a method"):
+
+        class Shop:  # pyright: ignore[reportUnusedClass]
+            @cuaderna.run
+            async def checkout(self) -> None:
+                return None

@@ -90,6 +90,8 @@ def _define(
     function: Callable[..., Any], *, name: str | None, max_attempts: int, backoff_seconds: float
 ) -> _AsyncFunction[..., Any]:
     step_name = name or _default_name(function)
+    if ":" in step_name or "#" in step_name:
+        raise InvalidDefinitionError(f"{step_name}: a step name cannot contain ':' or '#'")
     if max_attempts < 1:
         raise InvalidDefinitionError(f"{step_name}: max_attempts has to be at least 1")
     if inspect.iscoroutinefunction(function):
