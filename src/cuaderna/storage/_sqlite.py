@@ -12,6 +12,7 @@ from cuaderna._errors import JournalConflictError, LeaseLostError
 from cuaderna._records import AttemptStatus, Lease, RunRecord, RunStatus, StepAttempt
 from cuaderna.storage._migrations import LATEST_VERSION, pending_statements
 
+_WAL_SWITCH_TIMEOUT_SECONDS = 5.0
 _RUN_COLUMNS = (
     "run_id, name, input_json, code_version, status, output_json, error_json, "
     "created_at, finished_at"
@@ -89,15 +90,28 @@ class SqliteStorage:
 def _connect(path: str) -> sqlite3.Connection:
     connection = sqlite3.connect(path, autocommit=True)
     try:
-        connection.execute("PRAGMA journal_mode = WAL")
-        connection.execute("PRAGMA synchronous = FULL")
         connection.execute("PRAGMA busy_timeout = 5000")
+        _switch_to_wal(connection)
+        connection.execute("PRAGMA synchronous = FULL")
         connection.execute("PRAGMA foreign_keys = ON")
         _migrate(connection)
     except BaseException:
         connection.close()
         raise
     return connection
+
+
+def _switch_to_wal(connection: sqlite3.Connection) -> None:
+    # SQLite reports a concurrent switch as busy at once, without honoring busy_timeout.
+    deadline = time.monotonic() + _WAL_SWITCH_TIMEOUT_SECONDS
+    while True:
+        try:
+            connection.execute("PRAGMA journal_mode = WAL")
+            return
+        except sqlite3.OperationalError as error:
+            if error.sqlite_errorcode != sqlite3.SQLITE_BUSY or time.monotonic() > deadline:
+                raise
+            time.sleep(0.01)
 
 
 def _migrate(connection: sqlite3.Connection) -> None:
