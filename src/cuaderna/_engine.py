@@ -6,8 +6,9 @@ from uuid import uuid4
 
 from ._errors import (
     LeaseLostError,
+    RunFailedError,
+    RunHeldError,
     RunMismatchError,
-    RunNotAvailableError,
     StepMismatchError,
 )
 from ._records import Lease, RunStatus
@@ -48,7 +49,7 @@ class Engine:
                     f"not as {run.name}({input_json})"
                 )
             if record.status is RunStatus.FAILED:
-                raise RunNotAvailableError(f"run {run_id!r} already failed: {record.error_json}")
+                raise RunFailedError(f"run {run_id!r} already failed: {record.error_json}")
             if record.output_json is not None:
                 return run.codec.load_result(record.output_json)
             if record.code_version != run.code_version:
@@ -62,7 +63,7 @@ class Engine:
                 if give_up_at is not None:
                     remaining = give_up_at - time.monotonic()
                     if remaining <= 0:
-                        raise RunNotAvailableError(
+                        raise RunHeldError(
                             f"run {run_id!r} is still held by another worker "
                             f"after {self._claim_timeout_seconds} seconds"
                         )

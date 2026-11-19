@@ -5,7 +5,13 @@ from pathlib import Path
 import pytest
 
 import cuaderna
-from cuaderna import Engine, InvalidDefinitionError, RunNotAvailableError
+from cuaderna import (
+    Engine,
+    InvalidDefinitionError,
+    RunFailedError,
+    RunHeldError,
+    RunNotAvailableError,
+)
 from cuaderna._records import RunStatus
 from cuaderna.storage import Storage
 
@@ -65,7 +71,7 @@ async def test_a_failed_run_cannot_be_executed_again(engine: Engine) -> None:
     with pytest.raises(RuntimeError):
         await engine.execute("run", broken, "out of budget")
 
-    with pytest.raises(RunNotAvailableError, match="out of budget"):
+    with pytest.raises(RunFailedError, match="out of budget"):
         await engine.execute("run", broken, "out of budget")
 
 
@@ -100,9 +106,9 @@ async def test_a_worker_with_a_claim_timeout_gives_up_on_a_held_run(
     impatient = Engine(journal_path, claim_timeout_seconds=0.2)
     hurried = Engine(journal_path, claim_timeout_seconds=0)
     try:
-        with pytest.raises(RunNotAvailableError, match="still held"):
+        with pytest.raises(RunHeldError, match="still held"):
             await asyncio.wait_for(impatient.execute("run", wait_forever), timeout=5)
-        with pytest.raises(RunNotAvailableError, match="still held"):
+        with pytest.raises(RunHeldError, match="still held"):
             await asyncio.wait_for(hurried.execute("run", wait_forever), timeout=5)
     finally:
         await impatient.close()
@@ -157,6 +163,11 @@ async def test_a_run_cancelled_while_it_is_being_claimed_gives_up_its_lease(
         await task
 
     assert await journal.claim_run("run", "another worker", 60) is not None
+
+
+def test_held_and_failed_runs_are_both_not_available() -> None:
+    assert issubclass(RunHeldError, RunNotAvailableError)
+    assert issubclass(RunFailedError, RunNotAvailableError)
 
 
 def test_a_run_has_to_be_an_async_function() -> None:
