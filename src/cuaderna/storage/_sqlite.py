@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sqlite3
 import time
 from collections.abc import Callable, Generator
@@ -8,8 +9,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from cuaderna._errors import JournalConflictError, LeaseLostError
-from cuaderna._records import AttemptStatus, Lease, RunRecord, RunStatus, StepAttempt
+from cuaderna._errors import ApprovalNotPendingError, JournalConflictError, LeaseLostError
+from cuaderna._records import (
+    Approval,
+    ApprovalAnswer,
+    ApprovalRequest,
+    AttemptStatus,
+    Lease,
+    RunRecord,
+    RunStatus,
+    StepAttempt,
+)
 from cuaderna.storage._migrations import LATEST_VERSION, pending_statements
 
 _WAL_SWITCH_TIMEOUT_SECONDS = 5.0
@@ -20,6 +30,10 @@ _RUN_COLUMNS = (
 _ATTEMPT_COLUMNS = (
     "step_key, name, attempt, status, args_hash, args_json, result_json, error_json, "
     "started_at, finished_at, lease_token, annotations_json"
+)
+_APPROVAL_COLUMNS = (
+    "r.run_id, r.step_key, r.name, r.args_hash, r.args_json, r.policy_id, r.policy_hash, "
+    "r.rules_json, r.requested_at, a.approved, a.answered_by, a.note, a.answered_at"
 )
 
 
@@ -46,6 +60,19 @@ class SqliteStorage:
 
     async def record_attempt(self, lease: Lease, attempt: StepAttempt) -> None:
         await self._call(lambda connection: _record_attempt(connection, lease, attempt))
+
+    async def request_approval(self, lease: Lease, request: ApprovalRequest) -> None:
+        await self._call(lambda connection: _request_approval(connection, lease, request))
+
+    async def answer_approval(
+        self, run_id: str, step_key: str, args_hash: str, answer: ApprovalAnswer
+    ) -> None:
+        await self._call(
+            lambda connection: _answer_approval(connection, run_id, step_key, args_hash, answer)
+        )
+
+    async def list_approvals(self, run_id: str | None) -> list[Approval]:
+        return await self._call(lambda connection: _list_approvals(connection, run_id))
 
     async def load_attempts(self, run_id: str) -> list[StepAttempt]:
         return await self._call(lambda connection: _load_attempts(connection, run_id))
@@ -223,6 +250,75 @@ def _record_attempt(connection: sqlite3.Connection, lease: Lease, attempt: StepA
             ) from error
 
 
+def _request_approval(
+    connection: sqlite3.Connection, lease: Lease, request: ApprovalRequest
+) -> None:
+    with _write_transaction(connection):
+        cursor = connection.execute(
+            "SELECT 1 FROM runs WHERE run_id = ? AND lease_token = ? AND status = ?",
+            (lease.run_id, lease.token, RunStatus.RUNNING.value),
+        )
+        if cursor.fetchone() is None:
+            raise _lease_lost(lease)
+        connection.execute(
+            "INSERT OR IGNORE INTO approval_requests (run_id, step_key, name, args_hash, "
+            "args_json, policy_id, policy_hash, rules_json, requested_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                lease.run_id,
+                request.step_key,
+                request.name,
+                request.args_hash,
+                request.args_json,
+                request.policy_id,
+                request.policy_hash,
+                json.dumps(list(request.rules)),
+                _to_text(request.requested_at),
+            ),
+        )
+
+
+def _answer_approval(
+    connection: sqlite3.Connection,
+    run_id: str,
+    step_key: str,
+    args_hash: str,
+    answer: ApprovalAnswer,
+) -> None:
+    with _write_transaction(connection):
+        cursor = connection.execute(
+            "INSERT INTO approval_answers (request_id, approved, answered_by, note, answered_at) "
+            "SELECT id, ?, ?, ?, ? FROM approval_requests "
+            "WHERE run_id = ? AND step_key = ? AND args_hash = ? "
+            "AND id NOT IN (SELECT request_id FROM approval_answers)",
+            (
+                int(answer.approved),
+                answer.by,
+                answer.note,
+                _to_text(answer.at),
+                run_id,
+                step_key,
+                args_hash,
+            ),
+        )
+        if cursor.rowcount == 0:
+            raise ApprovalNotPendingError(
+                f"no pending approval for step {step_key!r} of run {run_id!r}"
+            )
+
+
+def _list_approvals(connection: sqlite3.Connection, run_id: str | None) -> list[Approval]:
+    query = (
+        f"SELECT {_APPROVAL_COLUMNS} FROM approval_requests AS r "
+        "LEFT JOIN approval_answers AS a ON a.request_id = r.id"
+    )
+    if run_id is None:
+        rows = connection.execute(f"{query} ORDER BY r.id").fetchall()
+    else:
+        rows = connection.execute(f"{query} WHERE r.run_id = ? ORDER BY r.id", (run_id,)).fetchall()
+    return [_approval_from_row(row) for row in rows]
+
+
 def _load_attempts(connection: sqlite3.Connection, run_id: str) -> list[StepAttempt]:
     rows = connection.execute(
         f"SELECT {_ATTEMPT_COLUMNS} FROM step_attempts WHERE run_id = ? ORDER BY id", (run_id,)
@@ -370,6 +466,26 @@ def _attempt_from_row(row: tuple[Any, ...]) -> StepAttempt:
         lease_token=row[10],
         annotations_json=row[11],
     )
+
+
+def _approval_from_row(row: tuple[Any, ...]) -> Approval:
+    request = ApprovalRequest(
+        run_id=row[0],
+        step_key=row[1],
+        name=row[2],
+        args_hash=row[3],
+        args_json=row[4],
+        policy_id=row[5],
+        policy_hash=row[6],
+        rules=tuple(json.loads(row[7])),
+        requested_at=datetime.fromisoformat(row[8]),
+    )
+    if row[9] is None:
+        return Approval(request=request, answer=None)
+    answer = ApprovalAnswer(
+        approved=bool(row[9]), by=row[10], note=row[11], at=datetime.fromisoformat(row[12])
+    )
+    return Approval(request=request, answer=answer)
 
 
 def _now_text() -> str:

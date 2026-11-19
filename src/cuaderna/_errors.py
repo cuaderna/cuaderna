@@ -17,6 +17,10 @@ class SchemaVersionError(CuadernaError):
     pass
 
 
+class ApprovalNotPendingError(CuadernaError):
+    pass
+
+
 class InvalidDefinitionError(CuadernaError):
     pass
 

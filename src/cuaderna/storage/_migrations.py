@@ -40,6 +40,68 @@ _MIGRATIONS: tuple[tuple[str, ...], ...] = (
         "ALTER TABLE step_attempts ADD COLUMN lease_token INTEGER",
         "ALTER TABLE step_attempts ADD COLUMN annotations_json TEXT",
     ),
+    (
+        """
+        CREATE TABLE approval_requests (
+            id INTEGER PRIMARY KEY,
+            run_id TEXT NOT NULL REFERENCES runs (run_id),
+            step_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            args_hash TEXT NOT NULL,
+            args_json TEXT NOT NULL,
+            policy_id TEXT NOT NULL,
+            policy_hash TEXT NOT NULL,
+            rules_json TEXT NOT NULL,
+            requested_at TEXT NOT NULL,
+            UNIQUE (run_id, step_key, args_hash)
+        ) STRICT
+        """,
+        """
+        CREATE TABLE approval_answers (
+            request_id INTEGER PRIMARY KEY REFERENCES approval_requests (id),
+            approved INTEGER NOT NULL,
+            answered_by TEXT NOT NULL,
+            note TEXT,
+            answered_at TEXT NOT NULL
+        ) STRICT
+        """,
+        """
+        CREATE TRIGGER step_attempts_no_update BEFORE UPDATE ON step_attempts
+        BEGIN
+            SELECT RAISE(ABORT, 'step_attempts is append-only');
+        END
+        """,
+        """
+        CREATE TRIGGER step_attempts_no_delete BEFORE DELETE ON step_attempts
+        BEGIN
+            SELECT RAISE(ABORT, 'step_attempts is append-only');
+        END
+        """,
+        """
+        CREATE TRIGGER approval_requests_no_update BEFORE UPDATE ON approval_requests
+        BEGIN
+            SELECT RAISE(ABORT, 'approval_requests is append-only');
+        END
+        """,
+        """
+        CREATE TRIGGER approval_requests_no_delete BEFORE DELETE ON approval_requests
+        BEGIN
+            SELECT RAISE(ABORT, 'approval_requests is append-only');
+        END
+        """,
+        """
+        CREATE TRIGGER approval_answers_no_update BEFORE UPDATE ON approval_answers
+        BEGIN
+            SELECT RAISE(ABORT, 'approval_answers is append-only');
+        END
+        """,
+        """
+        CREATE TRIGGER approval_answers_no_delete BEFORE DELETE ON approval_answers
+        BEGIN
+            SELECT RAISE(ABORT, 'approval_answers is append-only');
+        END
+        """,
+    ),
 )
 
 LATEST_VERSION = len(_MIGRATIONS)
