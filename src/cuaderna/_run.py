@@ -7,22 +7,39 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, overload
 
 from ._errors import InvalidDefinitionError
-from ._records import Lease, StepAttempt
 from ._serde import Codec, build_codec, receiver_of
-from .storage import Storage
+
+
+@dataclass(frozen=True, slots=True)
+class StepDefinition:
+    name: str
+    invoke: Callable[..., Coroutine[Any, Any, Any]]
+    codec: Codec[Any]
+    max_attempts: int
+    backoff_seconds: float
 
 
 @dataclass(slots=True)
-class RunContext:
-    storage: Storage
-    lease: Lease
-    recorded: dict[str, StepAttempt]
+class StepKeys:
     occurrences: dict[str, int] = field(default_factory=dict[str, int])
 
-    def reserve_step_key(self, name: str) -> str:
+    def reserve(self, name: str) -> str:
         occurrence = self.occurrences.get(name, 0) + 1
         self.occurrences[name] = occurrence
         return f"{name}#{occurrence}"
+
+
+class RunContext(Protocol):
+    @property
+    def step_keys(self) -> StepKeys: ...
+
+    async def execute_step(
+        self,
+        definition: StepDefinition,
+        step_key: str,
+        args: tuple[object, ...],
+        kwargs: dict[str, object],
+    ) -> object: ...
 
 
 @dataclass(frozen=True, slots=True)

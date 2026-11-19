@@ -12,8 +12,9 @@ from ._errors import (
     RunNotFoundError,
     StepMismatchError,
 )
+from ._recording import RecordingContext
 from ._records import Lease, RunRecord, RunStatus, StepAttempt
-from ._run import RunContext, RunDefinition, active_run
+from ._run import RunDefinition, active_run
 from ._serde import describe_error
 from .storage import Storage
 from .storage._sqlite import SqliteStorage
@@ -119,7 +120,7 @@ class Engine:
             raise
         recorded = {attempt.step_key: attempt for attempt in attempts}
         try:
-            with active_run(RunContext(self._storage, lease, recorded)):
+            with active_run(RecordingContext(self._storage, lease, recorded)):
                 output = await run.function(*args, **kwargs)
             output_json = run.codec.dump_result(output)
         except LeaseLostError:
