@@ -19,7 +19,7 @@ from ._errors import (
 from ._library import new_id, now, random
 from ._records import AttemptStatus, RunRecord, RunStatus, StepAttempt
 from ._run import run
-from ._step import idempotency_key, step
+from ._step import annotate, idempotency_key, step
 
 __all__ = [
     "AttemptStatus",
@@ -42,6 +42,7 @@ __all__ = [
     "StepFailedError",
     "StepMismatchError",
     "TerminalError",
+    "annotate",
     "idempotency_key",
     "new_id",
     "now",

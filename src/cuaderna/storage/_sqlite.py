@@ -19,7 +19,7 @@ _RUN_COLUMNS = (
 )
 _ATTEMPT_COLUMNS = (
     "step_key, name, attempt, status, args_hash, args_json, result_json, error_json, "
-    "started_at, finished_at"
+    "started_at, finished_at, lease_token, annotations_json"
 )
 
 
@@ -196,7 +196,7 @@ def _record_attempt(connection: sqlite3.Connection, lease: Lease, attempt: StepA
         try:
             connection.execute(
                 f"INSERT INTO step_attempts (run_id, {_ATTEMPT_COLUMNS}) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     lease.run_id,
                     attempt.step_key,
@@ -209,6 +209,8 @@ def _record_attempt(connection: sqlite3.Connection, lease: Lease, attempt: StepA
                     attempt.error_json,
                     _to_text(attempt.started_at),
                     _to_text(attempt.finished_at),
+                    lease.token,
+                    attempt.annotations_json,
                 ),
             )
         except sqlite3.IntegrityError as error:
@@ -315,6 +317,8 @@ def _attempt_from_row(row: tuple[Any, ...]) -> StepAttempt:
         error_json=row[7],
         started_at=datetime.fromisoformat(row[8]),
         finished_at=datetime.fromisoformat(row[9]),
+        lease_token=row[10],
+        annotations_json=row[11],
     )
 
 

@@ -1,9 +1,12 @@
 import asyncio
 import functools
 import inspect
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import Any, Protocol, overload
+
+from pydantic import JsonValue, TypeAdapter
 
 from ._errors import InvalidDefinitionError, StepCallError, StepFailedError
 from ._run import StepDefinition, current_run
@@ -13,7 +16,16 @@ type _AsyncFunction[**P, R] = Callable[P, Coroutine[Any, Any, R]]
 
 _LONGEST_RETRY_DELAY_SECONDS = 60.0
 
-active_step_key: ContextVar[str | None] = ContextVar("cuaderna_active_step_key", default=None)
+_ANNOTATIONS = TypeAdapter(dict[str, JsonValue])
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveStep:
+    idempotency_key: str
+    annotations: dict[str, JsonValue] = field(default_factory=dict[str, JsonValue])
+
+
+active_step: ContextVar[ActiveStep | None] = ContextVar("cuaderna_active_step", default=None)
 
 
 class _StepDecorator(Protocol):
@@ -59,10 +71,17 @@ def retry_delay(failed_attempt: int, backoff_seconds: float) -> float:
 
 
 def idempotency_key() -> str:
-    key = active_step_key.get()
-    if key is None:
+    running = active_step.get()
+    if running is None:
         raise StepCallError("idempotency_key was called outside a step")
-    return key
+    return running.idempotency_key
+
+
+def annotate(annotations: Mapping[str, JsonValue]) -> None:
+    running = active_step.get()
+    if running is None:
+        raise StepCallError("annotate was called outside a step")
+    running.annotations.update(_ANNOTATIONS.validate_python(dict(annotations)))
 
 
 def _define(
@@ -86,7 +105,7 @@ def _define(
         context = current_run()
         if context is None:
             raise StepCallError(f"step {step_name!r} was called outside a run")
-        if active_step_key.get() is not None:
+        if active_step.get() is not None:
             raise StepCallError(f"step {step_name!r} was called inside another step")
         step_key = context.step_keys.reserve(step_name)
         return context.execute_step(definition, step_key, args, kwargs)

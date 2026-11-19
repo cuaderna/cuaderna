@@ -3,11 +3,13 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from pydantic import JsonValue
+
 from ._errors import StepMismatchError
 from ._records import AttemptStatus, Lease, StepAttempt
 from ._run import StepDefinition, StepKeys
 from ._serde import describe_error, hash_arguments, load_error
-from ._step import active_step_key, retry_delay, step_failed
+from ._step import ActiveStep, active_step, retry_delay, step_failed
 from .storage import Storage
 
 
@@ -43,7 +45,8 @@ class RecordingContext:
             first_attempt = recorded.attempt + 1
         for attempt in range(first_attempt, definition.max_attempts + 1):
             started_at = datetime.now(UTC)
-            token = active_step_key.set(f"{self.lease.run_id}:{step_key}")
+            running = ActiveStep(f"{self.lease.run_id}:{step_key}")
+            token = active_step.set(running)
             try:
                 result_json = definition.codec.dump_result(await definition.invoke(*args, **kwargs))
             except Exception as error:
@@ -54,6 +57,7 @@ class RecordingContext:
                     attempt,
                     args_json,
                     started_at,
+                    running.annotations,
                     error_json=json.dumps(details),
                 )
                 await self.storage.record_attempt(self.lease, failed)
@@ -67,12 +71,13 @@ class RecordingContext:
                     attempt,
                     args_json,
                     started_at,
+                    running.annotations,
                     result_json=result_json,
                 )
                 await self.storage.record_attempt(self.lease, succeeded)
                 return definition.codec.load_result(result_json)
             finally:
-                active_step_key.reset(token)
+                active_step.reset(token)
         raise StepMismatchError(f"step {step_key!r} has more recorded attempts than it allows now")
 
 
@@ -82,6 +87,7 @@ def _attempt(
     attempt: int,
     args_json: str,
     started_at: datetime,
+    annotations: dict[str, JsonValue],
     *,
     result_json: str | None = None,
     error_json: str | None = None,
@@ -97,4 +103,5 @@ def _attempt(
         error_json=error_json,
         started_at=started_at,
         finished_at=datetime.now(UTC),
+        annotations_json=json.dumps(annotations) if annotations else None,
     )

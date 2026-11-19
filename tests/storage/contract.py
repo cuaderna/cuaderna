@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -48,7 +49,28 @@ class StorageContract:
         for attempt in recorded:
             await storage.record_attempt(lease, attempt)
 
-        assert await storage.load_attempts("run") == recorded
+        assert await storage.load_attempts("run") == [
+            replace(attempt, lease_token=lease.token) for attempt in recorded
+        ]
+
+    async def test_an_attempt_keeps_its_annotations_and_the_lease_that_wrote_it(
+        self, storage: Storage
+    ) -> None:
+        first_lease = await claimed_run(storage)
+        annotated = replace(attempt_for("ask#1"), annotations_json='{"tokens": 7}')
+        await storage.record_attempt(first_lease, annotated)
+        await storage.release_run(first_lease)
+        second_lease = await storage.claim_run("run", "worker-b", lease_seconds=60)
+        assert second_lease is not None
+        await storage.record_attempt(second_lease, attempt_for("ask#2"))
+
+        loaded = await storage.load_attempts("run")
+
+        assert [(attempt.lease_token, attempt.annotations_json) for attempt in loaded] == [
+            (first_lease.token, '{"tokens": 7}'),
+            (second_lease.token, None),
+        ]
+        assert first_lease.token != second_lease.token
 
     async def test_a_run_can_be_read_without_creating_it(self, storage: Storage) -> None:
         created = await storage.create_run("run", "fix_tests", '{"repo": "a"}', "v1")
