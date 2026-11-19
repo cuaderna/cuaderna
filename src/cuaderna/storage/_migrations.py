@@ -18,6 +18,23 @@ _MIGRATIONS: tuple[tuple[str, ...], ...] = (
             lease_expires_at REAL
         ) STRICT
         """,
+        """
+        CREATE TABLE step_attempts (
+            id INTEGER PRIMARY KEY,
+            run_id TEXT NOT NULL REFERENCES runs (run_id),
+            step_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            attempt INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            args_hash TEXT NOT NULL,
+            args_json TEXT NOT NULL,
+            result_json TEXT,
+            error_json TEXT,
+            started_at TEXT NOT NULL,
+            finished_at TEXT NOT NULL,
+            UNIQUE (run_id, step_key, attempt)
+        ) STRICT
+        """,
     ),
 )
 

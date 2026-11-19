@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from cuaderna._records import Lease, RunRecord
+from cuaderna._records import Lease, RunRecord, StepAttempt
 
 
 class Storage(Protocol):
@@ -11,6 +11,10 @@ class Storage(Protocol):
     async def claim_run(self, run_id: str, owner: str, lease_seconds: float) -> Lease | None: ...
 
     async def renew_lease(self, lease: Lease, lease_seconds: float) -> None: ...
+
+    async def record_attempt(self, lease: Lease, attempt: StepAttempt) -> None: ...
+
+    async def load_attempts(self, run_id: str) -> list[StepAttempt]: ...
 
     async def complete_run(self, lease: Lease, output_json: str) -> None: ...
 

@@ -1,8 +1,26 @@
+from datetime import UTC, datetime
+
 import pytest
 
-from cuaderna._errors import LeaseLostError
-from cuaderna._records import Lease, RunStatus
+from cuaderna._errors import JournalConflictError, LeaseLostError
+from cuaderna._records import AttemptStatus, Lease, RunStatus, StepAttempt
 from cuaderna.storage import Storage
+
+
+def attempt_for(step_key: str, attempt: int = 1) -> StepAttempt:
+    moment = datetime(2026, 1, 1, tzinfo=UTC)
+    return StepAttempt(
+        step_key=step_key,
+        name=step_key.split("#")[0],
+        attempt=attempt,
+        status=AttemptStatus.OK,
+        args_hash="hash",
+        args_json="[]",
+        result_json='"done"',
+        error_json=None,
+        started_at=moment,
+        finished_at=moment,
+    )
 
 
 async def claimed_run(storage: Storage, owner: str = "worker-a") -> Lease:
@@ -22,6 +40,15 @@ class StorageContract:
         assert existing.input_json == '{"repo": "a"}'
         assert existing.code_version == "v1"
         assert existing.status is RunStatus.RUNNING
+
+    async def test_attempts_load_in_the_order_they_were_recorded(self, storage: Storage) -> None:
+        lease = await claimed_run(storage)
+        recorded = [attempt_for("zeta#1"), attempt_for("alpha#1"), attempt_for("alpha#1", 2)]
+
+        for attempt in recorded:
+            await storage.record_attempt(lease, attempt)
+
+        assert await storage.load_attempts("run") == recorded
 
     async def test_a_live_lease_blocks_other_workers(self, storage: Storage) -> None:
         await claimed_run(storage, "worker-a")
@@ -44,9 +71,13 @@ class StorageContract:
         await storage.claim_run("run", "worker-b", lease_seconds=60)
 
         with pytest.raises(LeaseLostError):
+            await storage.record_attempt(stale, attempt_for("step#1"))
+        with pytest.raises(LeaseLostError):
             await storage.renew_lease(stale, lease_seconds=60)
         with pytest.raises(LeaseLostError):
             await storage.complete_run(stale, '"done"')
+
+        assert await storage.load_attempts("run") == []
 
     async def test_renewing_keeps_other_workers_out(self, storage: Storage) -> None:
         await storage.create_run("run", "fix_tests", "{}", None)
@@ -63,6 +94,13 @@ class StorageContract:
         await storage.release_run(lease)
 
         assert await storage.claim_run("run", "worker-b", lease_seconds=60) is not None
+
+    async def test_the_same_attempt_cannot_be_recorded_twice(self, storage: Storage) -> None:
+        lease = await claimed_run(storage)
+        await storage.record_attempt(lease, attempt_for("step#1"))
+
+        with pytest.raises(JournalConflictError):
+            await storage.record_attempt(lease, attempt_for("step#1"))
 
     async def test_a_completed_run_keeps_its_output_and_cannot_be_claimed(
         self, storage: Storage

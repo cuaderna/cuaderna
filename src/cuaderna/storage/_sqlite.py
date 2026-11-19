@@ -8,13 +8,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from cuaderna._errors import LeaseLostError
-from cuaderna._records import Lease, RunRecord, RunStatus
+from cuaderna._errors import JournalConflictError, LeaseLostError
+from cuaderna._records import AttemptStatus, Lease, RunRecord, RunStatus, StepAttempt
 from cuaderna.storage._migrations import LATEST_VERSION, pending_statements
 
 _RUN_COLUMNS = (
     "run_id, name, input_json, code_version, status, output_json, error_json, "
     "created_at, finished_at"
+)
+_ATTEMPT_COLUMNS = (
+    "step_key, name, attempt, status, args_hash, args_json, result_json, error_json, "
+    "started_at, finished_at"
 )
 
 
@@ -38,6 +42,12 @@ class SqliteStorage:
 
     async def renew_lease(self, lease: Lease, lease_seconds: float) -> None:
         await self._call(lambda connection: _renew_lease(connection, lease, lease_seconds))
+
+    async def record_attempt(self, lease: Lease, attempt: StepAttempt) -> None:
+        await self._call(lambda connection: _record_attempt(connection, lease, attempt))
+
+    async def load_attempts(self, run_id: str) -> list[StepAttempt]:
+        return await self._call(lambda connection: _load_attempts(connection, run_id))
 
     async def complete_run(self, lease: Lease, output_json: str) -> None:
         await self._call(
@@ -155,6 +165,46 @@ def _renew_lease(connection: sqlite3.Connection, lease: Lease, lease_seconds: fl
         _require_lease_held(cursor, lease)
 
 
+def _record_attempt(connection: sqlite3.Connection, lease: Lease, attempt: StepAttempt) -> None:
+    with _write_transaction(connection):
+        cursor = connection.execute(
+            "SELECT 1 FROM runs WHERE run_id = ? AND lease_token = ? AND status = ?",
+            (lease.run_id, lease.token, RunStatus.RUNNING.value),
+        )
+        if cursor.fetchone() is None:
+            raise _lease_lost(lease)
+        try:
+            connection.execute(
+                f"INSERT INTO step_attempts (run_id, {_ATTEMPT_COLUMNS}) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    lease.run_id,
+                    attempt.step_key,
+                    attempt.name,
+                    attempt.attempt,
+                    attempt.status.value,
+                    attempt.args_hash,
+                    attempt.args_json,
+                    attempt.result_json,
+                    attempt.error_json,
+                    _to_text(attempt.started_at),
+                    _to_text(attempt.finished_at),
+                ),
+            )
+        except sqlite3.IntegrityError as error:
+            raise JournalConflictError(
+                f"attempt {attempt.attempt} of step {attempt.step_key!r} is already recorded "
+                f"for run {lease.run_id!r}"
+            ) from error
+
+
+def _load_attempts(connection: sqlite3.Connection, run_id: str) -> list[StepAttempt]:
+    rows = connection.execute(
+        f"SELECT {_ATTEMPT_COLUMNS} FROM step_attempts WHERE run_id = ? ORDER BY id", (run_id,)
+    ).fetchall()
+    return [_attempt_from_row(row) for row in rows]
+
+
 def _finish_run(
     connection: sqlite3.Connection,
     lease: Lease,
@@ -214,6 +264,21 @@ def _run_from_row(row: tuple[Any, ...]) -> RunRecord:
         error_json=row[6],
         created_at=datetime.fromisoformat(row[7]),
         finished_at=None if finished_at is None else datetime.fromisoformat(finished_at),
+    )
+
+
+def _attempt_from_row(row: tuple[Any, ...]) -> StepAttempt:
+    return StepAttempt(
+        step_key=row[0],
+        name=row[1],
+        attempt=row[2],
+        status=AttemptStatus(row[3]),
+        args_hash=row[4],
+        args_json=row[5],
+        result_json=row[6],
+        error_json=row[7],
+        started_at=datetime.fromisoformat(row[8]),
+        finished_at=datetime.fromisoformat(row[9]),
     )
 
 
