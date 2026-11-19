@@ -30,7 +30,7 @@ class Engine:
         input_json = run.codec.dump_arguments(args, kwargs)
         lease = None
         while lease is None:
-            record = await self._storage.create_run(run_id, run.name, input_json, None)
+            record = await self._storage.create_run(run_id, run.name, input_json, run.code_version)
             if (record.name, record.input_json) != (run.name, input_json):
                 raise RunMismatchError(
                     f"run {run_id!r} was started as {record.name}({record.input_json}), "
@@ -40,6 +40,11 @@ class Engine:
                 raise RunNotAvailableError(f"run {run_id!r} already failed: {record.error_json}")
             if record.output_json is not None:
                 return run.codec.load_result(record.output_json)
+            if record.code_version != run.code_version:
+                raise RunMismatchError(
+                    f"run {run_id!r} was started with code version {record.code_version!r} "
+                    f"and cannot be resumed with {run.code_version!r}"
+                )
             lease = await self._storage.claim_run(run_id, self._owner, self._lease_seconds)
             if lease is None:
                 await asyncio.sleep(min(self._lease_seconds / 3, _LONGEST_CLAIM_WAIT_SECONDS))
