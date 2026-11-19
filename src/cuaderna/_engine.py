@@ -9,11 +9,13 @@ from ._errors import (
     RunNotAvailableError,
     StepMismatchError,
 )
-from ._records import Lease
+from ._records import Lease, RunStatus
 from ._run import RunContext, RunDefinition, active_run
 from ._serde import describe_error
 from .storage import Storage
 from .storage._sqlite import SqliteStorage
+
+_LONGEST_CLAIM_WAIT_SECONDS = 1.0
 
 
 class Engine:
@@ -26,17 +28,21 @@ class Engine:
         self, run_id: str, run: RunDefinition[P, R], /, *args: P.args, **kwargs: P.kwargs
     ) -> R:
         input_json = run.codec.dump_arguments(args, kwargs)
-        record = await self._storage.create_run(run_id, run.name, input_json, None)
-        if (record.name, record.input_json) != (run.name, input_json):
-            raise RunMismatchError(
-                f"run {run_id!r} was started as {record.name}({record.input_json}), "
-                f"not as {run.name}({input_json})"
-            )
-        lease = await self._storage.claim_run(run_id, self._owner, self._lease_seconds)
-        if lease is None:
-            raise RunNotAvailableError(
-                f"run {run_id!r} has already finished or is held by another worker"
-            )
+        lease = None
+        while lease is None:
+            record = await self._storage.create_run(run_id, run.name, input_json, None)
+            if (record.name, record.input_json) != (run.name, input_json):
+                raise RunMismatchError(
+                    f"run {run_id!r} was started as {record.name}({record.input_json}), "
+                    f"not as {run.name}({input_json})"
+                )
+            if record.status is RunStatus.FAILED:
+                raise RunNotAvailableError(f"run {run_id!r} already failed: {record.error_json}")
+            if record.output_json is not None:
+                return run.codec.load_result(record.output_json)
+            lease = await self._storage.claim_run(run_id, self._owner, self._lease_seconds)
+            if lease is None:
+                await asyncio.sleep(min(self._lease_seconds / 3, _LONGEST_CLAIM_WAIT_SECONDS))
         heartbeat = asyncio.create_task(self._keep_lease(lease))
         try:
             return await self._drive(run, lease, *args, **kwargs)

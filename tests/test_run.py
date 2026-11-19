@@ -1,5 +1,6 @@
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 
@@ -47,11 +48,48 @@ async def test_a_run_that_raises_is_marked_failed_and_the_error_reaches_the_call
     assert json.loads(record.error_json)["message"] == "out of budget"
 
 
-async def test_a_finished_run_cannot_be_executed_again(engine: Engine) -> None:
-    await engine.execute("run", total, [1])
+async def test_executing_a_completed_run_again_returns_its_stored_result(engine: Engine) -> None:
+    executions: list[int] = []
 
-    with pytest.raises(RunNotAvailableError):
-        await engine.execute("run", total, [1])
+    @cuaderna.run
+    async def counted() -> int:
+        executions.append(1)
+        return len(executions)
+
+    assert await engine.execute("run", counted) == 1
+    assert await engine.execute("run", counted) == 1
+    assert executions == [1]
+
+
+async def test_a_failed_run_cannot_be_executed_again(engine: Engine) -> None:
+    with pytest.raises(RuntimeError):
+        await engine.execute("run", broken, "out of budget")
+
+    with pytest.raises(RunNotAvailableError, match="out of budget"):
+        await engine.execute("run", broken, "out of budget")
+
+
+async def test_a_second_worker_waits_for_the_first_and_gets_the_same_result(
+    engine: Engine, journal_path: Path
+) -> None:
+    executions: list[int] = []
+
+    @cuaderna.run
+    async def slow() -> int:
+        executions.append(1)
+        await asyncio.sleep(0.3)
+        return len(executions)
+
+    other_engine = Engine(journal_path, lease_seconds=0.3)
+    try:
+        results = await asyncio.gather(
+            engine.execute("run", slow), other_engine.execute("run", slow)
+        )
+    finally:
+        await other_engine.close()
+
+    assert results == [1, 1]
+    assert executions == [1]
 
 
 async def test_a_cancelled_run_stays_unfinished_and_gives_up_its_lease(
