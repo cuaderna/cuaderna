@@ -1,12 +1,15 @@
 import argparse
 import asyncio
 import json
+import os
 import shutil
 import subprocess
 import sys
 import urllib.request
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, JsonValue
 
@@ -14,6 +17,9 @@ import cuaderna
 
 _SAMPLE = Path(__file__).parent / "sample"
 _MODEL_URL = "http://localhost:11434/api/chat"
+_ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+_EDIT_TOOL = "write_file"
+_PRICES = Path(__file__).parent / "prices.json"
 _LEASE_SECONDS = 5.0
 _PUBLISHED_WORKDIR = "/tmp/fix-tests"
 _INSTRUCTIONS = (
@@ -62,26 +68,68 @@ def read_sources(repo: str) -> dict[str, str]:
 
 
 @cuaderna.step(max_attempts=3)
-def ask_model(model: str, sources: dict[str, str], test_output: str) -> FileEdit:
+def ask_model(provider: str, model: str, sources: dict[str, str], test_output: str) -> FileEdit:
     print(f"  asking {model}")
     listing = "\n\n".join(f"# {name}\n{content}" for name, content in sources.items())
-    body = {
+    user = f"{listing}\n\n# pytest output\n{test_output}"
+    if provider == "ollama":
+        return _ask_ollama(model, _INSTRUCTIONS, user)
+    if provider == "anthropic":
+        return _ask_anthropic(model, _INSTRUCTIONS, user)
+    raise cuaderna.TerminalError(f"no such provider: {provider!r}")
+
+
+def _ask_ollama(model: str, instructions: str, prompt: str) -> FileEdit:
+    body: dict[str, JsonValue] = {
         "model": model,
         "stream": False,
         "format": FileEdit.model_json_schema(),
         "options": {"temperature": 0},
         "messages": [
-            {"role": "system", "content": _INSTRUCTIONS},
-            {"role": "user", "content": f"{listing}\n\n# pytest output\n{test_output}"},
+            {"role": "system", "content": instructions},
+            {"role": "user", "content": prompt},
         ],
     }
-    request = urllib.request.Request(
-        _MODEL_URL, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}
-    )
-    with urllib.request.urlopen(request, timeout=300) as response:
-        reply = json.load(response)
+    reply = _post_json(_MODEL_URL, {}, body)
     cuaderna.annotate(cuaderna.usage.from_ollama(reply, requested_model=model))
     return FileEdit.model_validate_json(reply["message"]["content"])
+
+
+def _ask_anthropic(model: str, instructions: str, prompt: str) -> FileEdit:
+    body: dict[str, JsonValue] = {
+        "model": model,
+        "max_tokens": 2048,
+        "system": instructions,
+        "messages": [{"role": "user", "content": prompt}],
+        "tools": [
+            {
+                "name": _EDIT_TOOL,
+                "description": "Write the corrected content of one source file.",
+                "input_schema": FileEdit.model_json_schema(),
+            }
+        ],
+        "tool_choice": {"type": "tool", "name": _EDIT_TOOL},
+    }
+    headers = {
+        "anthropic-version": "2023-06-01",
+        "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+    }
+    reply = _post_json(_ANTHROPIC_URL, headers, body)
+    cuaderna.annotate(cuaderna.usage.from_anthropic(reply, requested_model=model))
+    for block in reply["content"]:
+        if block["type"] == "tool_use":
+            return FileEdit.model_validate(block["input"])
+    raise ValueError("the model answered without the file edit")
+
+
+def _post_json(url: str, headers: dict[str, str], body: dict[str, JsonValue]) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers={"content-type": "application/json", **headers},
+    )
+    with urllib.request.urlopen(request, timeout=300) as response:
+        return json.load(response)
 
 
 @cuaderna.step
@@ -94,12 +142,12 @@ def write_file(repo: str, edit: FileEdit) -> None:
 
 
 @cuaderna.run
-async def fix_tests(repo: str, model: str, max_rounds: int) -> Summary:
+async def fix_tests(repo: str, provider: str, model: str, max_rounds: int) -> Summary:
     report = await run_tests(repo)
     rounds = 0
     while not report.passed and rounds < max_rounds:
         sources = await read_sources(repo)
-        edit = await ask_model(model, sources, report.output)
+        edit = await ask_model(provider, model, sources, report.output)
         await write_file(repo, edit)
         report = await run_tests(repo)
         rounds += 1
@@ -110,19 +158,44 @@ def _editable_files(repo: Path) -> list[Path]:
     return [path for path in repo.glob("*.py") if not path.name.startswith("test_")]
 
 
-async def _main(
-    run_id: str, workdir: Path, model: str, max_rounds: int, export: Path | None
-) -> None:
-    repo = workdir / "repo"
+@dataclass(frozen=True, slots=True)
+class _Options:
+    run_id: str
+    workdir: Path
+    provider: str
+    model: str
+    max_rounds: int
+    budget: str | None
+    export: Path | None
+
+
+async def _main(options: _Options) -> None:
+    if options.provider == "anthropic" and "ANTHROPIC_API_KEY" not in os.environ:
+        raise SystemExit("set ANTHROPIC_API_KEY to use --provider anthropic")
+    repo = options.workdir / "repo"
     if not repo.exists():
         shutil.copytree(_SAMPLE, repo)
-    engine = cuaderna.Engine(workdir / "journal.db", lease_seconds=_LEASE_SECONDS)
+    engine = cuaderna.Engine(
+        options.workdir / "journal.db",
+        lease_seconds=_LEASE_SECONDS,
+        prices=cuaderna.PriceTable.load(_PRICES),
+    )
+    run = fix_tests if options.budget is None else fix_tests.with_budget(options.budget)
     try:
-        summary = await engine.execute(run_id, fix_tests, str(repo), model, max_rounds)
-        if export is not None:
-            await engine.export_run(run_id, export, redact=partial(_hide_local_paths, workdir))
+        summary = await engine.execute(
+            options.run_id, run, str(repo), options.provider, options.model, options.max_rounds
+        )
+        if options.export is not None:
+            await engine.export_run(
+                options.run_id, options.export, redact=partial(_hide_local_paths, options.workdir)
+            )
+        cost = await engine.cost(options.run_id)
+    except (cuaderna.BudgetExceededError, cuaderna.CostUnknownError) as error:
+        print(f"stopped: {error}")
+        return
     finally:
         await engine.close()
+    print(f"cost: {cost.total_usd} USD, {cost.unknown_attempts} attempts of unknown cost")
     print(f"fixed: {summary.fixed}, rounds: {summary.rounds}")
 
 
@@ -143,16 +216,22 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fix the failing tests of a small sample repo.")
     parser.add_argument("workdir", type=Path, help="where the repo copy and the journal live")
     parser.add_argument("--run-id", default="fix-tests")
+    parser.add_argument("--provider", choices=["ollama", "anthropic"], default="ollama")
     parser.add_argument("--model", default="gpt-oss:20b")
     parser.add_argument("--max-rounds", type=int, default=5)
+    parser.add_argument("--budget", help="stop the run when it has spent this many USD")
     parser.add_argument("--export", type=Path, help="write the finished run to this file")
     arguments = parser.parse_args()
     asyncio.run(
         _main(
-            arguments.run_id,
-            arguments.workdir,
-            arguments.model,
-            arguments.max_rounds,
-            arguments.export,
+            _Options(
+                arguments.run_id,
+                arguments.workdir,
+                arguments.provider,
+                arguments.model,
+                arguments.max_rounds,
+                arguments.budget,
+                arguments.export,
+            )
         )
     )
