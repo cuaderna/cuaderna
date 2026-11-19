@@ -27,7 +27,12 @@ Repository = "https://github.com/cuaderna/cuaderna"
 Issues = "https://github.com/cuaderna/cuaderna/issues"
 
 [dependency-groups]
-dev = ["pyright>=1.1.400", "pytest>=8", "ruff>=0.12"]
+dev = [
+    "pyright>=1.1.400",
+    "pytest>=8",
+    "pytest-asyncio>=1.5.0",
+    "ruff>=0.12",
+]
 
 [tool.ruff]
 line-length = 100
@@ -43,3 +48,5 @@ pythonVersion = "3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
