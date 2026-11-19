@@ -116,5 +116,13 @@ class RunFileError(CuadernaError):
     pass
 
 
+class JournalTamperedError(CuadernaError):
+    def __init__(self, message: str, run_id: str, step_key: str, attempt: int) -> None:
+        super().__init__(message)
+        self.run_id = run_id
+        self.step_key = step_key
+        self.attempt = attempt
+
+
 class TerminalError(CuadernaError):
     pass

@@ -5,10 +5,12 @@ import time
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from cuaderna._chain import first_link, next_link
 from cuaderna._errors import ApprovalNotPendingError, JournalConflictError, LeaseLostError
 from cuaderna._records import (
     Approval,
@@ -29,7 +31,7 @@ _RUN_COLUMNS = (
 )
 _ATTEMPT_COLUMNS = (
     "step_key, name, attempt, status, args_hash, args_json, result_json, error_json, "
-    "started_at, finished_at, lease_token, annotations_json"
+    "started_at, finished_at, lease_token, annotations_json, chain_hash"
 )
 _APPROVAL_COLUMNS = (
     "r.run_id, r.step_key, r.name, r.args_hash, r.args_json, r.policy_id, r.policy_hash, "
@@ -218,15 +220,18 @@ def _renew_lease(connection: sqlite3.Connection, lease: Lease, lease_seconds: fl
 def _record_attempt(connection: sqlite3.Connection, lease: Lease, attempt: StepAttempt) -> None:
     with _write_transaction(connection):
         cursor = connection.execute(
-            "SELECT 1 FROM runs WHERE run_id = ? AND lease_token = ? AND status = ?",
+            "SELECT name, input_json FROM runs WHERE run_id = ? AND lease_token = ? AND status = ?",
             (lease.run_id, lease.token, RunStatus.RUNNING.value),
         )
-        if cursor.fetchone() is None:
+        run_row = cursor.fetchone()
+        if run_row is None:
             raise _lease_lost(lease)
+        stored = replace(attempt, lease_token=lease.token)
+        chain_hash = _chain_hash_for(connection, lease.run_id, run_row[0], run_row[1], stored)
         try:
             connection.execute(
                 f"INSERT INTO step_attempts (run_id, {_ATTEMPT_COLUMNS}) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     lease.run_id,
                     attempt.step_key,
@@ -241,6 +246,7 @@ def _record_attempt(connection: sqlite3.Connection, lease: Lease, attempt: StepA
                     _to_text(attempt.finished_at),
                     lease.token,
                     attempt.annotations_json,
+                    chain_hash,
                 ),
             )
         except sqlite3.IntegrityError as error:
@@ -248,6 +254,20 @@ def _record_attempt(connection: sqlite3.Connection, lease: Lease, attempt: StepA
                 f"attempt {attempt.attempt} of step {attempt.step_key!r} is already recorded "
                 f"for run {lease.run_id!r}"
             ) from error
+
+
+def _chain_hash_for(
+    connection: sqlite3.Connection, run_id: str, name: str, input_json: str, attempt: StepAttempt
+) -> str | None:
+    last = connection.execute(
+        "SELECT chain_hash FROM step_attempts WHERE run_id = ? ORDER BY id DESC LIMIT 1",
+        (run_id,),
+    ).fetchone()
+    if last is None:
+        return next_link(first_link(name, input_json), attempt)
+    if last[0] is None:
+        return None
+    return next_link(last[0], attempt)
 
 
 def _request_approval(
@@ -367,7 +387,7 @@ def _import_run(
             ) from error
         connection.executemany(
             f"INSERT INTO step_attempts (run_id, {_ATTEMPT_COLUMNS}) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     record.run_id,
@@ -383,6 +403,7 @@ def _import_run(
                     _to_text(attempt.finished_at),
                     attempt.lease_token,
                     attempt.annotations_json,
+                    attempt.chain_hash,
                 )
                 for attempt in attempts
             ],
@@ -465,6 +486,7 @@ def _attempt_from_row(row: tuple[Any, ...]) -> StepAttempt:
         finished_at=datetime.fromisoformat(row[9]),
         lease_token=row[10],
         annotations_json=row[11],
+        chain_hash=row[12],
     )
 
 

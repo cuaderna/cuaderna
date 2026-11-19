@@ -42,6 +42,7 @@ class StepAttempt:
     finished_at: datetime
     lease_token: int | None = None
     annotations_json: str | None = None
+    chain_hash: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

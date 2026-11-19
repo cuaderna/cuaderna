@@ -53,3 +53,12 @@ for entry in await engine.audit("fix-123"):
 `audit` returns one `AuditEntry` per attempt, in the order recorded: `at`, `step_key`, `name`, `attempt`, `args`, `lease_token`, `outcome` (`ok`, `error` or `denied`), `decision`, `effect`, `reason`, `policy`, `policy_hash`, `rules`, `actor`, `approved_by`, `approved_at` and `approval_note`. An attempt recorded without a policy has `decision` `None`. It reads the journal and needs no policy, so it works on an imported run.
 
 `engine.evaluate(run_id, policy)` returns, as `StepDecision` objects with `step_key`, `name`, `args` and `decision`, what another policy would decide for each step call of a recorded run, without executing anything. It is not a prediction: a denial would have changed what the model did next.
+
+## Checking the journal was not edited
+
+`await engine.verify(run_id)` returns the head of the run's hash chain, or raises `JournalTamperedError` with `run_id`, `step_key` and `attempt` of the first attempt that does not match. Every attempt stores a hash that covers the attempt recorded before it and its own fields, so an edited, removed or reordered attempt breaks the chain from there on. Triggers in the journal also refuse any update or delete of an attempt, an approval request or its answer.
+
+- Keep the returned head somewhere outside the journal file, such as a commit or a ticket. Someone who can write the file can recompute the whole chain and drop the triggers, and removing the last attempts only moves the head.
+- The chain covers the attempts, not the final status and output of the run.
+- Attempts recorded before this version have no hash, and their runs do not verify.
+- A run file exported with `redact=` does not verify, because the hashes cover the values as they were recorded. Run files written without it verify in another journal, also under `as_run_id`.
