@@ -8,6 +8,7 @@ from ._errors import (
     InvalidDefinitionError,
     JournalConflictError,
     LeaseLostError,
+    PolicyError,
     PriceTableError,
     ReplayDivergedError,
     RunFailedError,
@@ -23,6 +24,7 @@ from ._errors import (
     TerminalError,
 )
 from ._library import new_id, now, random
+from ._policy import Decision, Policy
 from ._prices import PriceTable
 from ._records import AttemptStatus, RunRecord, RunStatus, StepAttempt
 from ._run import run
@@ -34,10 +36,13 @@ __all__ = [
     "BudgetExceededError",
     "CostUnknownError",
     "CuadernaError",
+    "Decision",
     "Engine",
     "InvalidDefinitionError",
     "JournalConflictError",
     "LeaseLostError",
+    "Policy",
+    "PolicyError",
     "PriceTable",
     "PriceTableError",
     "ReplayDivergedError",
