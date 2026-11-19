@@ -1,0 +1,9 @@
+{
+  "format": "cuaderna.policy/1",
+  "id": "fix-tests-1",
+  "rules": [
+    {"id": "look", "effect": "allow", "steps": ["run_tests", "read_sources", "ask_model"]},
+    {"id": "edit-package", "effect": "allow", "steps": ["write_file"], "when": {"edit.path": {"under": "."}}},
+    {"id": "edit-tests", "effect": "ask", "steps": ["write_file"], "when": {"edit.path": {"glob": "test_*"}}}
+  ]
+}
