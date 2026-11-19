@@ -18,6 +18,7 @@ from ._serde import (
     describe_error,
     hash_arguments,
     load_error,
+    receiver_of,
 )
 
 type _AsyncFunction[**P, R] = Callable[P, Coroutine[Any, Any, R]]
@@ -88,7 +89,7 @@ def idempotency_key() -> str:
 def _define(
     function: Callable[..., Any], *, name: str | None, max_attempts: int, backoff_seconds: float
 ) -> _AsyncFunction[..., Any]:
-    step_name = name or function.__name__
+    step_name = name or _default_name(function)
     if max_attempts < 1:
         raise InvalidDefinitionError(f"{step_name}: max_attempts has to be at least 1")
     if inspect.iscoroutinefunction(function):
@@ -110,6 +111,13 @@ def _define(
         return _execute(context, definition, step_key, args, kwargs)
 
     return call
+
+
+def _default_name(function: Callable[..., Any]) -> str:
+    if receiver_of(inspect.signature(function)) is None:
+        return function.__name__
+    owner = function.__qualname__.split(".")[-2]
+    return f"{owner}.{function.__name__}"
 
 
 async def _execute(

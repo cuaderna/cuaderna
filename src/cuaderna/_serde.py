@@ -34,6 +34,7 @@ class Codec[R]:
         plain = {
             name: self.parameters[name].dump_python(value, mode="json", warnings="error")
             for name, value in bound.arguments.items()
+            if name in self.parameters
         }
         return json.dumps(plain, sort_keys=True, separators=(",", ":"))
 
@@ -51,12 +52,23 @@ def build_codec(function: Callable[..., Any], name: str) -> Codec[Any]:
         raise InvalidDefinitionError(
             f"{name}: an annotation cannot be resolved: {error}"
         ) from error
+    receiver = receiver_of(signature)
     parameters = {
         parameter.name: _adapter(name, f"parameter {parameter.name!r}", _annotation_of(parameter))
         for parameter in signature.parameters.values()
+        if parameter.name != receiver
     }
     result = _adapter(name, "the return value", signature.return_annotation)
     return Codec(signature, parameters, result)
+
+
+def receiver_of(signature: inspect.Signature) -> str | None:
+    first = next(iter(signature.parameters.values()), None)
+    if first is None or first.name not in ("self", "cls"):
+        return None
+    if first.annotation is not inspect.Parameter.empty:
+        return None
+    return first.name
 
 
 def hash_arguments(args_json: str) -> str:
