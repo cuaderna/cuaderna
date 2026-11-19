@@ -1,9 +1,10 @@
+import functools
 import inspect
 from collections.abc import Callable, Coroutine, Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol, overload
 
 from ._errors import InvalidDefinitionError
 from ._records import Lease, StepAttempt
@@ -29,16 +30,45 @@ class RunDefinition[**P, R]:
     name: str
     function: Callable[P, Coroutine[Any, Any, R]]
     codec: Codec[R]
+    code_version: str | None
+
+
+class _RunDecorator(Protocol):
+    def __call__[**P, R](
+        self, function: Callable[P, Coroutine[Any, Any, R]], /
+    ) -> RunDefinition[P, R]: ...
 
 
 _active_run: ContextVar[RunContext | None] = ContextVar("cuaderna_active_run", default=None)
 
 
-def run[**P, R](function: Callable[P, Coroutine[Any, Any, R]]) -> RunDefinition[P, R]:
+@overload
+def run[**P, R](function: Callable[P, Coroutine[Any, Any, R]], /) -> RunDefinition[P, R]: ...
+
+
+@overload
+def run(*, code_version: str | None = None) -> _RunDecorator: ...
+
+
+def run(
+    function: Callable[..., Coroutine[Any, Any, Any]] | None = None,
+    /,
+    *,
+    code_version: str | None = None,
+) -> Any:
+    define = functools.partial(_define, code_version=code_version)
+    if function is None:
+        return define
+    return define(function)
+
+
+def _define(
+    function: Callable[..., Coroutine[Any, Any, Any]], *, code_version: str | None
+) -> RunDefinition[..., Any]:
     name = function.__name__
     if not inspect.iscoroutinefunction(function):
         raise InvalidDefinitionError(f"{name}: a run has to be an async function")
-    return RunDefinition(name, function, build_codec(function, name))
+    return RunDefinition(name, function, build_codec(function, name), code_version)
 
 
 def current_run() -> RunContext | None:
