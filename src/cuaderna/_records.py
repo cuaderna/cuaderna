@@ -7,6 +7,7 @@ class RunStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    IMPORTED_UNFINISHED = "imported_unfinished"
 
 
 class AttemptStatus(StrEnum):

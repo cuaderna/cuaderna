@@ -56,6 +56,9 @@ class SqliteStorage:
     async def list_runs(self, limit: int) -> list[RunRecord]:
         return await self._call(lambda connection: _list_runs(connection, limit))
 
+    async def import_run(self, record: RunRecord, attempts: list[StepAttempt]) -> None:
+        await self._call(lambda connection: _import_run(connection, record, attempts))
+
     async def complete_run(self, lease: Lease, output_json: str) -> None:
         await self._call(
             lambda connection: _finish_run(
@@ -241,6 +244,53 @@ def _list_runs(connection: sqlite3.Connection, limit: int) -> list[RunRecord]:
         f"SELECT {_RUN_COLUMNS} FROM runs ORDER BY created_at DESC, rowid DESC LIMIT ?", (limit,)
     ).fetchall()
     return [_run_from_row(row) for row in rows]
+
+
+def _import_run(
+    connection: sqlite3.Connection, record: RunRecord, attempts: list[StepAttempt]
+) -> None:
+    with _write_transaction(connection):
+        try:
+            connection.execute(
+                f"INSERT INTO runs ({_RUN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    record.run_id,
+                    record.name,
+                    record.input_json,
+                    record.code_version,
+                    record.status.value,
+                    record.output_json,
+                    record.error_json,
+                    _to_text(record.created_at),
+                    None if record.finished_at is None else _to_text(record.finished_at),
+                ),
+            )
+        except sqlite3.IntegrityError as error:
+            raise JournalConflictError(
+                f"run {record.run_id!r} is already in the journal"
+            ) from error
+        connection.executemany(
+            f"INSERT INTO step_attempts (run_id, {_ATTEMPT_COLUMNS}) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    record.run_id,
+                    attempt.step_key,
+                    attempt.name,
+                    attempt.attempt,
+                    attempt.status.value,
+                    attempt.args_hash,
+                    attempt.args_json,
+                    attempt.result_json,
+                    attempt.error_json,
+                    _to_text(attempt.started_at),
+                    _to_text(attempt.finished_at),
+                    attempt.lease_token,
+                    attempt.annotations_json,
+                )
+                for attempt in attempts
+            ],
+        )
 
 
 def _finish_run(
