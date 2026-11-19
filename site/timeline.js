@@ -18,6 +18,8 @@ const AMOUNT_PATTERN = /^\d+(\.\d+)?$/;
 const ZERO_AMOUNT_PATTERN = /^0(\.0+)?$/;
 const MISSING_PRICE_TABLE_REASON = "the model call was recorded without a price table";
 const UNREADABLE_COST_REASON = "the recorded cost cannot be read";
+const UNREADABLE_AUTHORIZATION = "unreadable";
+const AUTHORIZATION_REASONS = ["rule", "no_rule", "unevaluable", "rejected"];
 
 const statusLine = document.querySelector("#status");
 const timeline = document.querySelector("#timeline");
@@ -215,6 +217,121 @@ function costFacts(cost) {
   return [...facts, ...costPartFacts(cost.parts)];
 }
 
+function recordedAuthorization(attempt) {
+  const recorded = attempt.annotations?.["cuaderna.authorization"];
+  if (recorded === undefined) {
+    return null;
+  }
+  const isReadable =
+    recorded !== null &&
+    typeof recorded === "object" &&
+    (recorded.decision === "allow" || recorded.decision === "deny") &&
+    AUTHORIZATION_REASONS.includes(recorded.reason);
+  if (!isReadable) {
+    return { unreadable: true };
+  }
+  return recorded;
+}
+
+function textOrNull(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  return null;
+}
+
+function authorizationRuleIds(recorded) {
+  if (!Array.isArray(recorded.rules)) {
+    return [];
+  }
+  return recorded.rules.filter((rule) => typeof rule === "string");
+}
+
+function authorizationReasonText(recorded) {
+  const ruleIds = authorizationRuleIds(recorded).join(", ");
+  if (recorded.reason === "no_rule") {
+    return "no rule names this step";
+  }
+  if (recorded.reason === "rejected") {
+    return "a person rejected it";
+  }
+  if (recorded.reason === "unevaluable") {
+    return ["a rule could not be evaluated", ruleIds].filter((part) => part !== "").join(": ");
+  }
+  if (ruleIds === "") {
+    return "a rule, no rule ids recorded";
+  }
+  return ruleIds;
+}
+
+function authorizationPolicyText(recorded) {
+  const policy = textOrNull(recorded.policy);
+  const hash = textOrNull(recorded.policy_hash);
+  if (policy === null || hash === null) {
+    return policy ?? hash;
+  }
+  return `${policy} (${hash})`;
+}
+
+function authorizationApprovalFacts(recorded) {
+  const approval = recorded.approval;
+  if (approval === null || approval === undefined) {
+    return [];
+  }
+  if (typeof approval !== "object") {
+    return [["approval", UNREADABLE_AUTHORIZATION]];
+  }
+  let verb = "approved by";
+  if (recorded.decision === "deny") {
+    verb = "rejected by";
+  }
+  return [
+    [verb, textOrNull(approval.by) ?? UNREADABLE_AUTHORIZATION],
+    ["decided at", textOrNull(approval.at)],
+    ["note", textOrNull(approval.note)],
+  ];
+}
+
+function authorizationFacts(recorded) {
+  if (recorded.unreadable) {
+    return [["authorization", UNREADABLE_AUTHORIZATION]];
+  }
+  let policySaid = null;
+  if (recorded.effect === "ask") {
+    policySaid = "ask a person";
+  }
+  const facts = [
+    ["decision", recorded.decision],
+    ["policy said", policySaid],
+    ["why", authorizationReasonText(recorded)],
+    ["policy", authorizationPolicyText(recorded)],
+    ["actor", textOrNull(recorded.actor)],
+    ...authorizationApprovalFacts(recorded),
+  ];
+  return facts.filter(([, value]) => value !== null);
+}
+
+function authorizationLabel(recorded) {
+  if (recorded === null || recorded.unreadable) {
+    return null;
+  }
+  if (recorded.decision === "deny") {
+    return "denied";
+  }
+  if (recorded.approval !== null && typeof recorded.approval === "object") {
+    return "approved";
+  }
+  return null;
+}
+
+function rowStatusText(attempt) {
+  const label = authorizationLabel(recordedAuthorization(attempt));
+  if (label === "approved" && attempt.status !== "ok") {
+    return attempt.status;
+  }
+  return label ?? attempt.status;
+}
+
 function leaseGroups(attempts) {
   const groups = [];
   attempts.forEach((attempt, index) => {
@@ -321,6 +438,10 @@ function showAttemptDetail(attempt) {
   if (cost !== null) {
     nodes.push(element("h3", "", "Cost"), factsNode(costFacts(cost)));
   }
+  const authorization = recordedAuthorization(attempt);
+  if (authorization !== null) {
+    nodes.push(element("h3", "", "Authorization"), factsNode(authorizationFacts(authorization)));
+  }
   nodes.push(
     ...sectionNodes("Arguments", attempt.args),
     ...outcomeNodes(
@@ -382,7 +503,7 @@ function attemptRow(attempt, longestSeconds) {
       element("span", "", `attempt ${attempt.attempt}`),
       element("span", "", durationText(seconds)),
       element("span", "", attemptCostText(attemptCost(attempt))),
-      element("span", "status", attempt.status),
+      element("span", "status", rowStatusText(attempt)),
       bar,
     ],
     attempt.status,
