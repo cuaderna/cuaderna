@@ -12,7 +12,7 @@ from cuaderna import (
     RunHeldError,
     RunNotAvailableError,
 )
-from cuaderna._records import RunStatus
+from cuaderna._records import Lease, RunStatus
 from cuaderna.storage import Storage
 
 
@@ -101,15 +101,22 @@ async def test_a_second_worker_waits_for_the_first_and_gets_the_same_result(
 async def test_a_worker_with_a_claim_timeout_gives_up_on_a_held_run(
     engine: Engine, journal_path: Path
 ) -> None:
-    holder = asyncio.create_task(engine.execute("run", wait_forever))
-    await asyncio.sleep(0.05)
+    started = asyncio.Event()
+
+    @cuaderna.run
+    async def hold() -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    holder = asyncio.create_task(engine.execute("run", hold))
+    await started.wait()
     impatient = Engine(journal_path, claim_timeout_seconds=0.2)
     hurried = Engine(journal_path, claim_timeout_seconds=0)
     try:
         with pytest.raises(RunHeldError, match="still held"):
-            await asyncio.wait_for(impatient.execute("run", wait_forever), timeout=5)
+            await impatient.execute("run", hold)
         with pytest.raises(RunHeldError, match="still held"):
-            await asyncio.wait_for(hurried.execute("run", wait_forever), timeout=5)
+            await hurried.execute("run", hold)
     finally:
         await impatient.close()
         await hurried.close()
@@ -163,6 +170,36 @@ async def test_a_run_cancelled_while_it_is_being_claimed_gives_up_its_lease(
         await task
 
     assert await journal.claim_run("run", "another worker", 60) is not None
+
+
+async def test_a_run_cancelled_twice_while_it_is_being_claimed_gives_up_its_lease(
+    engine: Engine, journal: Storage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    storage = engine._storage  # pyright: ignore[reportPrivateUsage]
+    claim_now = storage.claim_run
+    claimed = asyncio.Event()
+    may_answer = asyncio.Event()
+
+    async def claim_and_answer_late(run_id: str, owner: str, lease_seconds: float) -> Lease | None:
+        lease = await claim_now(run_id, owner, lease_seconds)
+        claimed.set()
+        await may_answer.wait()
+        return lease
+
+    monkeypatch.setattr(storage, "claim_run", claim_and_answer_late)
+    task = asyncio.create_task(engine.execute("run", wait_forever))
+    await claimed.wait()
+    task.cancel()
+    for _ in range(5):
+        await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    may_answer.set()
+
+    async with asyncio.timeout(5):
+        while await journal.claim_run("run", "another worker", 60) is None:
+            await asyncio.sleep(0.01)
 
 
 def test_held_and_failed_runs_are_both_not_available() -> None:
