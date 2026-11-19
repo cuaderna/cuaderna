@@ -4,6 +4,8 @@ from uuid import uuid4
 
 from ._step import step
 
+LIBRARY_STEPS = frozenset({"cuaderna.now", "cuaderna.random", "cuaderna.new_id"})
+
 
 @step(name="cuaderna.now")
 async def now() -> datetime:

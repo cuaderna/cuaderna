@@ -1,10 +1,10 @@
 from dataclasses import dataclass, field
 
+from ._authorization import recorded_failure
 from ._errors import ReplayDivergedError
 from ._records import StepAttempt
 from ._run import StepDefinition, StepKeys
 from ._serde import hash_arguments, load_error
-from ._step import step_failed
 
 
 @dataclass(slots=True)
@@ -37,7 +37,7 @@ class ReplayingContext:
         if recorded.error_json is not None:
             details = load_error(recorded.error_json)
             if details["terminal"] or recorded.attempt >= definition.max_attempts:
-                raise step_failed(step_key, details)
+                raise recorded_failure(step_key, recorded, details)
         raise self._diverged(
             f"asked for step {step_key!r}, which was recorded up to attempt "
             f"{recorded.attempt} and never reached a final outcome"

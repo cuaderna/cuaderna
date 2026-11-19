@@ -50,6 +50,14 @@ class StepFailedError(CuadernaError):
         self.traceback = traceback
 
 
+class PermissionDeniedError(StepFailedError):
+    def __init__(self, step_key: str, message: str, reason: str, rules: tuple[str, ...]) -> None:
+        super().__init__(step_key, "PermissionDeniedError", message, "")
+        Exception.__init__(self, message)
+        self.reason = reason
+        self.rules = rules
+
+
 class StepMismatchError(CuadernaError):
     pass
 
