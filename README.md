@@ -6,7 +6,7 @@ A *cuaderna* is a rib of a ship's hull: the structure underneath that holds ever
 
 ## Status
 
-Early development. The first two goals below, resuming after a crash and replaying a recorded run, are implemented on `main`. The package on PyPI is still a placeholder, so for now it has to be installed from this repository.
+Early development. The first three goals below, resuming after a crash, replaying a recorded run and cost limits, are implemented on `main`. The package on PyPI is still a placeholder, so for now it has to be installed from this repository.
 
 ## What it is
 
@@ -20,7 +20,7 @@ Every step is written to a journal with its result as soon as it finishes. Every
 - **Permissions and audit.** Tools run with explicit permissions and every call is recorded.
 - **Fault injection.** Recorded runs can be used to test how an agent reacts to a tool that fails or a malformed response.
 
-These are goals, listed in the order they will be built. The first two are implemented: a run resumes after a crash, replays from code, exports as a file, and a static page shows that file.
+These are goals, listed in the order they will be built. The first three are implemented: a run resumes after a crash, replays from code, exports as a file, a static page shows that file, every model call is stored with its cost, and a run stops at its budget without losing what it did.
 
 ## Usage
 
@@ -138,6 +138,7 @@ for attempt in cost.attempts:
 - A cost you already know wins over the table. `cuaderna.annotate(cuaderna.usage.reported_cost("0.0125", "returned by the gateway"))` stores it as reported, which also covers a step that pays for something that is not a model.
 - One model call per step. `annotate` replaces keys, so a step that makes two calls records the usage of the last one.
 - `engine.cost` reads what the journal holds and needs no table, so it works on an imported run.
+- Pricing adds 7 microseconds to recording an attempt (median of 7 rounds of 20,000 calls, Python 3.12 on Windows 11), about 1% of the 0.65 milliseconds it takes to record a step.
 
 ### A ceiling for a run
 
@@ -181,7 +182,7 @@ It is an estimate, and a rough one:
 
 ## Look at a run
 
-[site](site) is a static page that shows a run file: the attempts in the order they were recorded, grouped by the process that wrote them, with the arguments, result, error and annotations of each one. It has no build step and no server side. Serve the folder and open it:
+[site](site) is a static page that shows a run file: the attempts in the order they were recorded, grouped by the process that wrote them, with the arguments, result, error and annotations of each one, the cost of each model call with the parts it is made of, and the total of the run. The page adds up what the file holds and prices nothing itself. It has no build step and no server side. Serve the folder and open it:
 
 ```
 python -m http.server --directory site

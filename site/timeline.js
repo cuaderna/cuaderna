@@ -7,6 +7,17 @@ const MODEL_FACTS = [
   ["input tokens read from cache", "gen_ai.usage.cache_read.input_tokens"],
   ["output tokens", "gen_ai.usage.output_tokens"],
 ];
+const COST_PART_LABELS = [
+  ["input", "input"],
+  ["cache read", "cache_read"],
+  ["cache write", "cache_write"],
+  ["output", "output"],
+  ["requests", "requests"],
+];
+const AMOUNT_PATTERN = /^\d+(\.\d+)?$/;
+const ZERO_AMOUNT_PATTERN = /^0(\.0+)?$/;
+const MISSING_PRICE_TABLE_REASON = "the model call was recorded without a price table";
+const UNREADABLE_COST_REASON = "the recorded cost cannot be read";
 
 const statusLine = document.querySelector("#status");
 const timeline = document.querySelector("#timeline");
@@ -78,6 +89,132 @@ function durationText(seconds) {
   return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
 }
 
+function decimalPlaces(amount) {
+  const [, fraction = ""] = amount.split(".");
+  return fraction.length;
+}
+
+function sumOfAmounts(amounts) {
+  const places = Math.max(0, ...amounts.map(decimalPlaces));
+  let scaledTotal = 0n;
+  for (const amount of amounts) {
+    const [whole, fraction = ""] = amount.split(".");
+    scaledTotal += BigInt(whole + fraction.padEnd(places, "0"));
+  }
+  const digits = scaledTotal.toString().padStart(places + 1, "0");
+  if (places === 0) {
+    return digits;
+  }
+  return `${digits.slice(0, -places)}.${digits.slice(-places)}`;
+}
+
+function isModelCall(attempt) {
+  return Object.keys(attempt.annotations ?? {}).some((key) => key.startsWith("gen_ai."));
+}
+
+function costFromRecord(recorded, usd, basis, reason) {
+  return {
+    usd,
+    basis,
+    reason,
+    parts: recorded.parts ?? null,
+    priceTable: recorded.price_table ?? null,
+    priceTableHash: recorded.price_table_hash ?? null,
+    model: recorded.model ?? null,
+    variant: recorded.variant ?? null,
+  };
+}
+
+function unknownCost(reason) {
+  return costFromRecord({}, null, "unknown", reason);
+}
+
+function attemptCost(attempt) {
+  const recorded = attempt.annotations?.["cuaderna.cost"];
+  if (recorded === undefined) {
+    if (isModelCall(attempt)) {
+      return unknownCost(MISSING_PRICE_TABLE_REASON);
+    }
+    return null;
+  }
+  if (recorded === null || typeof recorded !== "object") {
+    return unknownCost(UNREADABLE_COST_REASON);
+  }
+  if (recorded.usd === null) {
+    const reason = typeof recorded.reason === "string" ? recorded.reason : UNREADABLE_COST_REASON;
+    return costFromRecord(recorded, null, "unknown", reason);
+  }
+  if (typeof recorded.usd !== "string" || !AMOUNT_PATTERN.test(recorded.usd)) {
+    return unknownCost(UNREADABLE_COST_REASON);
+  }
+  return costFromRecord(recorded, recorded.usd, recorded.basis ?? null, recorded.reason ?? null);
+}
+
+function runCost(attempts) {
+  const costs = attempts.map(attemptCost).filter((cost) => cost !== null);
+  if (costs.length === 0) {
+    return null;
+  }
+  const knownAmounts = costs.filter((cost) => cost.usd !== null).map((cost) => cost.usd);
+  return {
+    total: sumOfAmounts(knownAmounts),
+    unknownCount: costs.length - knownAmounts.length,
+  };
+}
+
+function attemptCostText(cost) {
+  if (cost === null) {
+    return "";
+  }
+  if (cost.usd === null) {
+    return "unknown cost";
+  }
+  return `${cost.usd} USD`;
+}
+
+function runCostText(cost) {
+  if (cost === null) {
+    return "";
+  }
+  return `${cost.total} USD`;
+}
+
+function priceTableText(cost) {
+  if (cost.priceTable === null || cost.priceTableHash === null) {
+    return cost.priceTable;
+  }
+  return `${cost.priceTable} (${cost.priceTableHash})`;
+}
+
+function costPartFacts(parts) {
+  if (parts === null || typeof parts !== "object") {
+    return [];
+  }
+  return COST_PART_LABELS.filter(
+    ([, key]) => typeof parts[key] === "string" && !ZERO_AMOUNT_PATTERN.test(parts[key]),
+  ).map(([label, key]) => [label, `${parts[key]} USD`]);
+}
+
+function costFacts(cost) {
+  let variant = null;
+  if (cost.variant !== null) {
+    variant = JSON.stringify(cost.variant);
+  }
+  let amount = "unknown";
+  if (cost.usd !== null) {
+    amount = `${cost.usd} USD`;
+  }
+  const facts = [
+    ["cost", amount],
+    ["basis", cost.basis],
+    ["why", cost.reason],
+    ["price table", priceTableText(cost)],
+    ["priced as", cost.model],
+    ["variant", variant],
+  ].filter(([, value]) => value !== null);
+  return [...facts, ...costPartFacts(cost.parts)];
+}
+
 function leaseGroups(attempts) {
   const groups = [];
   attempts.forEach((attempt, index) => {
@@ -136,17 +273,24 @@ function detailTitle(text) {
   return title;
 }
 
-function showRunDetail(run, attemptCount) {
+function showRunDetail(run, attemptCount, cost) {
+  const facts = [
+    ["function", run.name],
+    ["status", run.status],
+    ["code version", run.code_version ?? "not recorded"],
+    ["created", run.created_at],
+    ["finished", run.finished_at ?? "not finished"],
+    ["attempts recorded", String(attemptCount)],
+  ];
+  if (cost !== null) {
+    facts.push(
+      ["cost", runCostText(cost)],
+      ["attempts of unknown cost", String(cost.unknownCount)],
+    );
+  }
   detail.replaceChildren(
     detailTitle(`Run ${run.run_id}`),
-    factsNode([
-      ["function", run.name],
-      ["status", run.status],
-      ["code version", run.code_version ?? "not recorded"],
-      ["created", run.created_at],
-      ["finished", run.finished_at ?? "not finished"],
-      ["attempts recorded", String(attemptCount)],
-    ]),
+    factsNode(facts),
     ...sectionNodes("Input", run.input),
     ...outcomeNodes(run.status === "completed", run.status === "failed", run.output, run.error),
   );
@@ -172,6 +316,10 @@ function showAttemptDetail(attempt) {
   ];
   if (modelFacts.length > 0) {
     nodes.push(element("h3", "", "Model call"), factsNode(modelFacts));
+  }
+  const cost = attemptCost(attempt);
+  if (cost !== null) {
+    nodes.push(element("h3", "", "Cost"), factsNode(costFacts(cost)));
   }
   nodes.push(
     ...sectionNodes("Arguments", attempt.args),
@@ -233,6 +381,7 @@ function attemptRow(attempt, longestSeconds) {
       element("span", "key", attempt.step_key),
       element("span", "", `attempt ${attempt.attempt}`),
       element("span", "", durationText(seconds)),
+      element("span", "", attemptCostText(attemptCost(attempt))),
       element("span", "status", attempt.status),
       bar,
     ],
@@ -251,7 +400,7 @@ function takeoverNote(previousGroup, group) {
   return element(
     "li",
     "takeover",
-    `The process holding the run stopped here. Another one took the run over and started its first step ${gap} later. A step that was executing when the first process stopped left no record, so it starts again below.`,
+    `The process holding the run stopped here or gave the run back. Another one continued it and started its first step ${gap} later. If a step was executing when the first one stopped, it left no record and starts again below.`,
   );
 }
 
@@ -269,6 +418,17 @@ function groupItem(group, position, longestSeconds) {
   return item;
 }
 
+function statusText(run, attemptCount, cost) {
+  let text = `Showing run ${run.run_id}: ${attemptCount} attempts, ${run.status}`;
+  if (cost !== null) {
+    text += `, ${runCostText(cost)}`;
+    if (cost.unknownCount > 0) {
+      text += `, ${cost.unknownCount} of unknown cost`;
+    }
+  }
+  return `${text}.`;
+}
+
 function showRunFile(file) {
   const { run, attempts } = file;
   rows = [];
@@ -276,15 +436,17 @@ function showRunFile(file) {
     secondsBetween(attempt.started_at, attempt.finished_at),
   );
   const longestSeconds = Math.max(...durations, 0.001);
+  const cost = runCost(attempts);
   const runButton = rowButton(
     [
       element("span", "key", run.name),
       element("span", "", "the run"),
       element("span", "", durationText(secondsBetween(run.created_at, run.finished_at ?? ""))),
+      element("span", "", runCostText(cost)),
       element("span", "status", run.status),
     ],
     run.status,
-    () => showRunDetail(run, attempts.length),
+    () => showRunDetail(run, attempts.length, cost),
   );
   const runItem = element("li");
   runItem.append(runButton);
@@ -303,7 +465,7 @@ function showRunFile(file) {
   scrubber.max = String(attempts.length);
   selectRow(0);
   statusLine.classList.remove("problem");
-  statusLine.textContent = `Showing run ${run.run_id}: ${attempts.length} attempts, ${run.status}.`;
+  statusLine.textContent = statusText(run, attempts.length, cost);
 }
 
 function showProblem(message) {
