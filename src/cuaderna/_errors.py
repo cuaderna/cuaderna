@@ -1,3 +1,6 @@
+from decimal import Decimal
+
+
 class CuadernaError(Exception):
     pass
 
@@ -61,6 +64,16 @@ class ReplayDivergedError(CuadernaError):
 
 class PriceTableError(CuadernaError):
     pass
+
+
+class BudgetExceededError(CuadernaError):
+    def __init__(self, run_id: str, budget_usd: Decimal, spent_usd: Decimal) -> None:
+        super().__init__(
+            f"run {run_id!r} has spent {spent_usd} USD and its budget is {budget_usd} USD"
+        )
+        self.run_id = run_id
+        self.budget_usd = budget_usd
+        self.spent_usd = spent_usd
 
 
 class RunFileError(CuadernaError):
