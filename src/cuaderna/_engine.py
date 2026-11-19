@@ -4,12 +4,13 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from ._cost import RunCost, cost_for_budget, run_cost
+from ._cost import RunCost, cost_for_budget, repriced_cost, run_cost
 from ._errors import (
     BudgetExceededError,
     CostUnknownError,
     InvalidDefinitionError,
     LeaseLostError,
+    PriceTableError,
     ReplayDivergedError,
     RunFailedError,
     RunHeldError,
@@ -112,6 +113,11 @@ class Engine:
 
     async def cost(self, run_id: str) -> RunCost:
         return run_cost(await self.steps(run_id))
+
+    async def reprice(self, run_id: str, *, provider: str, model: str) -> RunCost:
+        if self._prices is None:
+            raise PriceTableError("repricing a run needs an engine with a price table")
+        return repriced_cost(await self.steps(run_id), self._prices, provider=provider, model=model)
 
     async def replay[R](self, run_id: str, run: RunDefinition[..., R], /) -> R:
         record = await self.run_record(run_id)
