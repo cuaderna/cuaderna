@@ -2,7 +2,7 @@
 
 A static page that shows a recorded run, and the sample run it opens on.
 
-[site](../site) is a static page that shows a run file: the attempts in the order they were recorded, grouped by the process that wrote them, with the arguments, result, error and annotations of each one, the cost of each model call with the parts it is made of, and the total of the run. The page adds up what the file holds and prices nothing itself. It has no build step and no server side. Serve the folder and open it:
+[site](../site) is a static page that shows a run file: the attempts in the order they were recorded, grouped by the process that wrote them, with the arguments, result, error and annotations of each one, the cost of each model call with the parts it is made of, what each step was allowed to do and who approved it, and the total of the run. The page adds up what the file holds and prices nothing itself. It has no build step and no server side. Serve the folder and open it:
 
 ```
 python -m http.server --directory site
