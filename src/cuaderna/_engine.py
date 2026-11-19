@@ -14,6 +14,7 @@ from ._errors import (
     RunNotFoundError,
     StepMismatchError,
 )
+from ._prices import PriceTable
 from ._recording import RecordingContext
 from ._records import Lease, RunRecord, RunStatus, StepAttempt
 from ._replay import ReplayingContext
@@ -33,8 +34,10 @@ class Engine:
         *,
         lease_seconds: float = 60.0,
         claim_timeout_seconds: float | None = None,
+        prices: PriceTable | None = None,
     ) -> None:
         self._storage: Storage = SqliteStorage(path)
+        self._prices = prices
         self._owner = uuid4().hex
         self._lease_seconds = lease_seconds
         self._claim_timeout_seconds = claim_timeout_seconds
@@ -188,7 +191,7 @@ class Engine:
             raise
         recorded = {attempt.step_key: attempt for attempt in attempts}
         try:
-            with active_run(RecordingContext(self._storage, lease, recorded)):
+            with active_run(RecordingContext(self._storage, lease, recorded, self._prices)):
                 output = await run.function(*args, **kwargs)
             output_json = run.codec.dump_result(output)
         except LeaseLostError:

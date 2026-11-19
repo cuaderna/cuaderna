@@ -5,7 +5,9 @@ from datetime import UTC, datetime
 
 from pydantic import JsonValue
 
+from ._cost import with_cost
 from ._errors import StepMismatchError
+from ._prices import PriceTable
 from ._records import AttemptStatus, Lease, StepAttempt
 from ._run import StepDefinition, StepKeys
 from ._serde import describe_error, hash_arguments, load_error
@@ -18,6 +20,7 @@ class RecordingContext:
     storage: Storage
     lease: Lease
     recorded: dict[str, StepAttempt]
+    prices: PriceTable | None = None
     step_keys: StepKeys = field(default_factory=StepKeys)
 
     async def execute_step(
@@ -57,7 +60,7 @@ class RecordingContext:
                     attempt,
                     args_json,
                     started_at,
-                    running.annotations,
+                    with_cost(running.annotations, self.prices),
                     error_json=json.dumps(details),
                 )
                 await self.storage.record_attempt(self.lease, failed)
@@ -71,7 +74,7 @@ class RecordingContext:
                     attempt,
                     args_json,
                     started_at,
-                    running.annotations,
+                    with_cost(running.annotations, self.prices),
                     result_json=result_json,
                 )
                 await self.storage.record_attempt(self.lease, succeeded)

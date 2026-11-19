@@ -1,8 +1,16 @@
 from collections.abc import Mapping
+from decimal import Decimal
+from typing import Annotated
 
-from pydantic import BaseModel, JsonValue, TypeAdapter
+from pydantic import BaseModel, Field, JsonValue, TypeAdapter
 
 _JSON_OBJECT = TypeAdapter[dict[str, JsonValue]](dict[str, JsonValue])
+_AMOUNT = TypeAdapter[Decimal](Annotated[Decimal, Field(ge=0)])
+
+
+def reported_cost(usd: Decimal | str, reason: str) -> dict[str, JsonValue]:
+    amount = _AMOUNT.validate_python(usd)
+    return {"cuaderna.cost": {"usd": format(amount, "f"), "basis": "reported", "reason": reason}}
 
 
 class _AnthropicCacheCreation(BaseModel):
