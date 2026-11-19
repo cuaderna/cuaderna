@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from ._audit import AuditEntry, StepDecision, audit_entries, decisions_under
 from ._cost import RunCost, cost_for_budget, repriced_cost, run_cost
 from ._errors import (
     ApprovalNotPendingError,
@@ -22,6 +23,7 @@ from ._errors import (
     RunNotFoundError,
     StepMismatchError,
 )
+from ._policy import Policy
 from ._prices import PriceTable
 from ._recording import Budget, RecordingContext
 from ._records import (
@@ -157,6 +159,12 @@ class Engine:
         if self._prices is None:
             raise PriceTableError("repricing a run needs an engine with a price table")
         return repriced_cost(await self.steps(run_id), self._prices, provider=provider, model=model)
+
+    async def audit(self, run_id: str) -> list[AuditEntry]:
+        return audit_entries(await self.steps(run_id))
+
+    async def evaluate(self, run_id: str, policy: Policy) -> list[StepDecision]:
+        return decisions_under(await self.steps(run_id), policy)
 
     async def replay[R](self, run_id: str, run: RunDefinition[..., R], /) -> R:
         record = await self.run_record(run_id)

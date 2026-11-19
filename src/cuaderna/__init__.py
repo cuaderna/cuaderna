@@ -1,4 +1,5 @@
 from . import usage
+from ._audit import AuditEntry, StepDecision
 from ._cost import AttemptCost, RunCost
 from ._engine import Engine
 from ._errors import (
@@ -39,6 +40,7 @@ __all__ = [
     "ApprovalRequiredError",
     "AttemptCost",
     "AttemptStatus",
+    "AuditEntry",
     "BudgetExceededError",
     "CostUnknownError",
     "CuadernaError",
@@ -65,6 +67,7 @@ __all__ = [
     "SchemaVersionError",
     "StepAttempt",
     "StepCallError",
+    "StepDecision",
     "StepFailedError",
     "StepMismatchError",
     "TerminalError",
