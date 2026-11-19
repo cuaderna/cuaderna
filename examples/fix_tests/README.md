@@ -49,5 +49,6 @@ Running the command once more after it finished returns the stored result withou
 
 - Reading the sources is a step because it is input that can change between executions, so its result is recorded rather than recomputed.
 - `ask_model` has `max_attempts=3`, so a transient failure of the model call is retried before the run fails.
+- `ask_model` calls `cuaderna.annotate` with the model that answered and the token counts, under the OpenTelemetry GenAI names, and with Ollama's own counters and durations untouched under `provider.usage`. They are stored with the attempt and are not part of its result.
 - `write_file` writes the whole file, so repeating it is harmless. It refuses paths outside the editable files with `TerminalError`, so a bad model answer is not retried.
 - `fix_tests` is plain Python with a loop; the durability comes from the decorators on the steps, not from a separate workflow language.
