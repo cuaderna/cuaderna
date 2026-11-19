@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 import pytest
 
 from cuaderna._errors import JournalConflictError, LeaseLostError
-from cuaderna._records import AttemptStatus, Lease, RunStatus, StepAttempt
+from cuaderna._records import AttemptStatus, Lease, RunRecord, RunStatus, StepAttempt
 from cuaderna.storage import Storage
 
 
@@ -71,6 +71,26 @@ class StorageContract:
             (second_lease.token, None),
         ]
         assert first_lease.token != second_lease.token
+
+    async def test_an_imported_run_is_stored_as_given_and_cannot_be_claimed(
+        self, storage: Storage
+    ) -> None:
+        moment = datetime(2026, 1, 1, tzinfo=UTC)
+        record = RunRecord(
+            "run", "fix_tests", "{}", "v1", RunStatus.IMPORTED_UNFINISHED, None, None, moment, None
+        )
+        attempts = [
+            replace(attempt_for("ask#1"), lease_token=4, annotations_json='{"tokens": 7}'),
+            attempt_for("ask#2"),
+        ]
+
+        await storage.import_run(record, attempts)
+
+        assert await storage.get_run("run") == record
+        assert await storage.load_attempts("run") == attempts
+        assert await storage.claim_run("run", "worker-a", lease_seconds=60) is None
+        with pytest.raises(JournalConflictError):
+            await storage.import_run(record, [])
 
     async def test_a_run_can_be_read_without_creating_it(self, storage: Storage) -> None:
         created = await storage.create_run("run", "fix_tests", '{"repo": "a"}', "v1")
