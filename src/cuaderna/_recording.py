@@ -2,11 +2,12 @@ import asyncio
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from pydantic import JsonValue
 
-from ._cost import with_cost
-from ._errors import StepMismatchError
+from ._cost import run_cost, with_cost
+from ._errors import BudgetExceededError, StepMismatchError
 from ._prices import PriceTable
 from ._records import AttemptStatus, Lease, StepAttempt
 from ._run import StepDefinition, StepKeys
@@ -16,11 +17,29 @@ from .storage import Storage
 
 
 @dataclass(slots=True)
+class Budget:
+    run_id: str
+    limit_usd: Decimal
+    spent_usd: Decimal
+    exceeded: BudgetExceededError | None = None
+
+    def check(self) -> None:
+        if self.exceeded is None and self.spent_usd >= self.limit_usd:
+            self.exceeded = BudgetExceededError(self.run_id, self.limit_usd, self.spent_usd)
+        if self.exceeded is not None:
+            raise self.exceeded
+
+    def add(self, attempt: StepAttempt) -> None:
+        self.spent_usd += run_cost([attempt]).total_usd
+
+
+@dataclass(slots=True)
 class RecordingContext:
     storage: Storage
     lease: Lease
     recorded: dict[str, StepAttempt]
     prices: PriceTable | None = None
+    budget: Budget | None = None
     step_keys: StepKeys = field(default_factory=StepKeys)
 
     async def execute_step(
@@ -47,6 +66,8 @@ class RecordingContext:
                     raise step_failed(step_key, details)
             first_attempt = recorded.attempt + 1
         for attempt in range(first_attempt, definition.max_attempts + 1):
+            if self.budget is not None:
+                self.budget.check()
             started_at = datetime.now(UTC)
             running = ActiveStep(f"{self.lease.run_id}:{step_key}")
             token = active_step.set(running)
@@ -63,7 +84,7 @@ class RecordingContext:
                     with_cost(running.annotations, self.prices),
                     error_json=json.dumps(details),
                 )
-                await self.storage.record_attempt(self.lease, failed)
+                await self._record(failed)
                 if details["terminal"] or attempt == definition.max_attempts:
                     raise step_failed(step_key, details) from error
                 await asyncio.sleep(retry_delay(attempt, definition.backoff_seconds))
@@ -77,11 +98,16 @@ class RecordingContext:
                     with_cost(running.annotations, self.prices),
                     result_json=result_json,
                 )
-                await self.storage.record_attempt(self.lease, succeeded)
+                await self._record(succeeded)
                 return definition.codec.load_result(result_json)
             finally:
                 active_step.reset(token)
         raise StepMismatchError(f"step {step_key!r} has more recorded attempts than it allows now")
+
+    async def _record(self, attempt: StepAttempt) -> None:
+        await self.storage.record_attempt(self.lease, attempt)
+        if self.budget is not None:
+            self.budget.add(attempt)
 
 
 def _attempt(

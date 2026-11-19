@@ -6,6 +6,8 @@ from uuid import uuid4
 
 from ._cost import RunCost, run_cost
 from ._errors import (
+    BudgetExceededError,
+    InvalidDefinitionError,
     LeaseLostError,
     ReplayDivergedError,
     RunFailedError,
@@ -16,7 +18,7 @@ from ._errors import (
     StepMismatchError,
 )
 from ._prices import PriceTable
-from ._recording import RecordingContext
+from ._recording import Budget, RecordingContext
 from ._records import Lease, RunRecord, RunStatus, StepAttempt
 from ._replay import ReplayingContext
 from ._run import RunDefinition, active_run
@@ -47,6 +49,8 @@ class Engine:
     async def execute[**P, R](
         self, run_id: str, run: RunDefinition[P, R], /, *args: P.args, **kwargs: P.kwargs
     ) -> R:
+        if run.budget_usd is not None and self._prices is None:
+            raise InvalidDefinitionError(f"{run.name}: a budget needs an engine with a price table")
         input_json = run.codec.dump_arguments(args, kwargs)
         give_up_at = None
         if self._claim_timeout_seconds is not None:
@@ -194,21 +198,31 @@ class Engine:
             await self._storage.release_run(lease)
             raise
         recorded = {attempt.step_key: attempt for attempt in attempts}
+        budget = None
+        if run.budget_usd is not None:
+            budget = Budget(lease.run_id, run.budget_usd, run_cost(attempts).total_usd)
+        context = RecordingContext(self._storage, lease, recorded, self._prices, budget)
         try:
-            with active_run(RecordingContext(self._storage, lease, recorded, self._prices)):
+            with active_run(context):
                 output = await run.function(*args, **kwargs)
             output_json = run.codec.dump_result(output)
         except LeaseLostError:
             raise
-        except StepMismatchError:
+        except (StepMismatchError, BudgetExceededError):
             await self._storage.release_run(lease)
             raise
         except Exception as error:
+            if budget is not None and budget.exceeded is not None:
+                await self._storage.release_run(lease)
+                raise budget.exceeded from error
             await self._storage.fail_run(lease, json.dumps(describe_error(error)))
             raise
         except BaseException:
             await self._storage.release_run(lease)
             raise
+        if budget is not None and budget.exceeded is not None:
+            await self._storage.release_run(lease)
+            raise budget.exceeded
         await self._storage.complete_run(lease, output_json)
         return run.codec.load_result(output_json)
 

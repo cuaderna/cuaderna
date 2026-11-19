@@ -139,6 +139,27 @@ for attempt in cost.attempts:
 - One model call per step. `annotate` replaces keys, so a step that makes two calls records the usage of the last one.
 - `engine.cost` reads what the journal holds and needs no table, so it works on an imported run.
 
+### A ceiling for a run
+
+```python
+@cuaderna.run(budget_usd="2.00")
+async def fix_tests(repo: str) -> Summary: ...
+
+
+try:
+    await engine.execute("fix-123", fix_tests, "path/to/repo")
+except cuaderna.BudgetExceededError as stop:
+    print(stop.spent_usd, stop.budget_usd)
+    await engine.execute("fix-123", fix_tests.with_budget("5.00"), "path/to/repo")
+```
+
+- The check is before every step attempt, retries included. Once the run has spent its budget or more, the step call raises `BudgetExceededError` and no attempt is recorded.
+- Spent is the sum of the cost of every attempt in the journal, failed ones and those of earlier workers included. It is read from the journal when the run is claimed, so a crash does not reset it.
+- The run is not failed. It stays unfinished with its journal, and executing it again with a higher budget continues from where it stopped and pays only for what is missing. With the same budget it raises again before running any step.
+- Catching the error inside the run function does not get past it: every later step call raises it again, and `execute` raises it when the function ends.
+- Nothing is reserved before a call, because the size of an answer is not known beforehand. A run can go past its ceiling by the cost of the steps that were already in flight when it was crossed: one, or as many as it started together with `asyncio.gather`. A call in flight when the process dies leaves no attempt in the journal, so it was paid and is not in the sum.
+- `with_budget` returns the same run with another ceiling, for limits that depend on who asks. A budget needs an engine with a price table; without one `execute` raises `InvalidDefinitionError`.
+
 ## Look at a run
 
 [site](site) is a static page that shows a run file: the attempts in the order they were recorded, grouped by the process that wrote them, with the arguments, result, error and annotations of each one. It has no build step and no server side. Serve the folder and open it:
