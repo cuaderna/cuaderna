@@ -8,11 +8,11 @@ from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     JsonValue,
     NonNegativeInt,
-    PlainValidator,
     ValidationError,
     field_validator,
 )
@@ -38,7 +38,7 @@ def _rate_from_string(value: object) -> Decimal:
     return rate
 
 
-_Rate = Annotated[Decimal, PlainValidator(_rate_from_string)]
+_Rate = Annotated[Decimal, BeforeValidator(_rate_from_string)]
 
 
 class _Rates(BaseModel):
