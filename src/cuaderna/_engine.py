@@ -10,6 +10,7 @@ from ._errors import (
     RunFailedError,
     RunHeldError,
     RunMismatchError,
+    RunNotAvailableError,
     RunNotFoundError,
     StepMismatchError,
 )
@@ -17,6 +18,7 @@ from ._recording import RecordingContext
 from ._records import Lease, RunRecord, RunStatus, StepAttempt
 from ._replay import ReplayingContext
 from ._run import RunDefinition, active_run
+from ._runfile import Redact, dump_run_file, load_run_file
 from ._serde import describe_error
 from .storage import Storage
 from .storage._sqlite import SqliteStorage
@@ -57,6 +59,11 @@ class Engine:
                 raise RunFailedError(f"run {run_id!r} already failed: {record.error_json}")
             if record.output_json is not None:
                 return run.codec.load_result(record.output_json)
+            if record.status is RunStatus.IMPORTED_UNFINISHED:
+                raise RunNotAvailableError(
+                    f"run {run_id!r} was imported unfinished: it can be read and replayed, "
+                    "not resumed"
+                )
             if record.code_version != run.code_version:
                 raise RunMismatchError(
                     f"run {run_id!r} was started with code version {record.code_version!r} "
@@ -130,12 +137,28 @@ class Engine:
                 f"the replay of run {run_id!r} returned {output_json}, "
                 f"but the run was recorded as failed: {record.error_json}"
             )
-        if record.status is RunStatus.COMPLETED and output_json != record.output_json:
+        if record.output_json is not None and json.loads(output_json) != json.loads(
+            record.output_json
+        ):
             raise ReplayDivergedError(
                 f"the replay of run {run_id!r} returned {output_json}, "
                 f"not the recorded {record.output_json}"
             )
         return run.codec.load_result(output_json)
+
+    async def export_run(
+        self, run_id: str, path: str | Path, *, redact: Redact | None = None
+    ) -> None:
+        record = await self.run_record(run_id)
+        attempts = await self._storage.load_attempts(run_id)
+        text = dump_run_file(record, attempts, redact)
+        await asyncio.to_thread(Path(path).write_text, text, encoding="utf-8", newline="\n")
+
+    async def import_run(self, path: str | Path, *, as_run_id: str | None = None) -> str:
+        text = await asyncio.to_thread(Path(path).read_text, encoding="utf-8")
+        record, attempts = load_run_file(text, as_run_id)
+        await self._storage.import_run(record, attempts)
+        return record.run_id
 
     async def _claim(self, run_id: str) -> Lease | None:
         claim = asyncio.ensure_future(

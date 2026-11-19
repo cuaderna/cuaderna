@@ -20,7 +20,7 @@ Every step is written to a journal with its result as soon as it finishes. Every
 - **Permissions and audit.** Tools run with explicit permissions and every call is recorded.
 - **Fault injection.** Recorded runs can be used to test how an agent reacts to a tool that fails or a malformed response.
 
-These are goals, listed in the order they will be built. The first one is implemented. Replay works from code; turning a run into a file and showing it on a page are not there yet.
+These are goals, listed in the order they will be built. The first one is implemented. Replay works from code and a run can be exported as a file; the page that shows one is not there yet.
 
 ## Usage
 
@@ -74,6 +74,19 @@ rounds = await engine.replay("fix-123", fix_tests)
 ```
 
 No step executes, nothing is written and the run is not claimed, so it works on a finished, failed or unfinished run, also while another process is executing it. A replay is strict: it raises `ReplayDivergedError` if the code asks for a step the journal does not have or has with other arguments, if it leaves recorded steps unused, or if it returns something else than the run did. That makes a recorded run a test that fails when the agent takes another path. Only steps are replayed: the code between them runs for real, so it must not have effects of its own. The code version is not checked, because replaying old runs against new code is the point.
+
+A run can be taken out of the journal as one JSON file and loaded into another journal, which turns a real run into a test case:
+
+```python
+await engine.export_run("fix-123", "tests/cases/fix-123.json")
+
+run_id = await other_engine.import_run("tests/cases/fix-123.json")
+assert await other_engine.replay(run_id, fix_tests) == 2
+```
+
+`import_run` refuses a run id the journal already has unless `as_run_id=` gives it another one. A run imported unfinished can be read and replayed, never resumed.
+
+The journal and the run file hold everything in plain text: prompts, tool output, error messages, whatever a step received or returned, including a secret if one was passed as an argument. Read secrets from the environment inside the step instead of passing them around. Before publishing a run file, pass `redact=` to `export_run`, a function `(path, value) -> value` that is called with `"input"`, `"output"`, `"error"` and `"<step key>.args"`, `.result`, `.error` and `.annotations`, and read the result yourself.
 
 The journal is a SQLite file. It has to be on a local disk, not on a network drive.
 
