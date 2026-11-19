@@ -50,6 +50,12 @@ class SqliteStorage:
     async def load_attempts(self, run_id: str) -> list[StepAttempt]:
         return await self._call(lambda connection: _load_attempts(connection, run_id))
 
+    async def get_run(self, run_id: str) -> RunRecord | None:
+        return await self._call(lambda connection: _get_run(connection, run_id))
+
+    async def list_runs(self, limit: int) -> list[RunRecord]:
+        return await self._call(lambda connection: _list_runs(connection, limit))
+
     async def complete_run(self, lease: Lease, output_json: str) -> None:
         await self._call(
             lambda connection: _finish_run(
@@ -217,6 +223,22 @@ def _load_attempts(connection: sqlite3.Connection, run_id: str) -> list[StepAtte
         f"SELECT {_ATTEMPT_COLUMNS} FROM step_attempts WHERE run_id = ? ORDER BY id", (run_id,)
     ).fetchall()
     return [_attempt_from_row(row) for row in rows]
+
+
+def _get_run(connection: sqlite3.Connection, run_id: str) -> RunRecord | None:
+    row = connection.execute(
+        f"SELECT {_RUN_COLUMNS} FROM runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    return _run_from_row(row)
+
+
+def _list_runs(connection: sqlite3.Connection, limit: int) -> list[RunRecord]:
+    rows = connection.execute(
+        f"SELECT {_RUN_COLUMNS} FROM runs ORDER BY created_at DESC, rowid DESC LIMIT ?", (limit,)
+    ).fetchall()
+    return [_run_from_row(row) for row in rows]
 
 
 def _finish_run(

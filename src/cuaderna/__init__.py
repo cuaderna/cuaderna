@@ -8,6 +8,7 @@ from ._errors import (
     RunHeldError,
     RunMismatchError,
     RunNotAvailableError,
+    RunNotFoundError,
     SchemaVersionError,
     StepCallError,
     StepFailedError,
@@ -15,10 +16,12 @@ from ._errors import (
     TerminalError,
 )
 from ._library import new_id, now, random
+from ._records import AttemptStatus, RunRecord, RunStatus, StepAttempt
 from ._run import run
 from ._step import idempotency_key, step
 
 __all__ = [
+    "AttemptStatus",
     "CuadernaError",
     "Engine",
     "InvalidDefinitionError",
@@ -28,7 +31,11 @@ __all__ = [
     "RunHeldError",
     "RunMismatchError",
     "RunNotAvailableError",
+    "RunNotFoundError",
+    "RunRecord",
+    "RunStatus",
     "SchemaVersionError",
+    "StepAttempt",
     "StepCallError",
     "StepFailedError",
     "StepMismatchError",

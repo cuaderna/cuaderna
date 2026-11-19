@@ -50,6 +50,21 @@ class StorageContract:
 
         assert await storage.load_attempts("run") == recorded
 
+    async def test_a_run_can_be_read_without_creating_it(self, storage: Storage) -> None:
+        created = await storage.create_run("run", "fix_tests", '{"repo": "a"}', "v1")
+
+        assert await storage.get_run("run") == created
+        assert await storage.get_run("missing") is None
+        assert await storage.list_runs(limit=10) == [created]
+
+    async def test_runs_are_listed_newest_first_up_to_a_limit(self, storage: Storage) -> None:
+        for run_id in ("first", "second", "third"):
+            await storage.create_run(run_id, "fix_tests", "{}", None)
+
+        listed = await storage.list_runs(limit=2)
+
+        assert [record.run_id for record in listed] == ["third", "second"]
+
     async def test_a_live_lease_blocks_other_workers(self, storage: Storage) -> None:
         await claimed_run(storage, "worker-a")
 
