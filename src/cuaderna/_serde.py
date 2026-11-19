@@ -4,12 +4,22 @@ import json
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 from pydantic import TypeAdapter
 from pydantic.errors import PydanticUserError
 
-from ._errors import InvalidDefinitionError
+from ._errors import InvalidDefinitionError, TerminalError
+
+
+class ErrorDetails(TypedDict):
+    type: str
+    message: str
+    traceback: str
+    terminal: bool
+
+
+_ERROR_DETAILS = TypeAdapter(ErrorDetails)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,12 +63,17 @@ def hash_arguments(args_json: str) -> str:
     return hashlib.sha256(args_json.encode()).hexdigest()
 
 
-def describe_error(error: Exception) -> dict[str, str]:
+def describe_error(error: Exception) -> ErrorDetails:
     return {
         "type": type(error).__qualname__,
         "message": str(error),
         "traceback": "".join(traceback.format_exception(error)),
+        "terminal": isinstance(error, TerminalError),
     }
+
+
+def load_error(error_json: str) -> ErrorDetails:
+    return _ERROR_DETAILS.validate_json(error_json)
 
 
 def _annotation_of(parameter: inspect.Parameter) -> object:

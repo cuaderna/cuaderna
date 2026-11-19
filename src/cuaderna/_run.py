@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ._errors import InvalidDefinitionError
-from ._records import Lease
+from ._records import Lease, StepAttempt
 from ._serde import Codec, build_codec
 from .storage import Storage
 
@@ -15,6 +15,7 @@ from .storage import Storage
 class RunContext:
     storage: Storage
     lease: Lease
+    recorded: dict[str, StepAttempt]
     occurrences: dict[str, int] = field(default_factory=dict[str, int])
 
     def reserve_step_key(self, name: str) -> str:

@@ -1,8 +1,15 @@
+import asyncio
 import json
 from pathlib import Path
 from uuid import uuid4
 
-from ._errors import LeaseLostError, RunNotAvailableError
+from ._errors import (
+    LeaseLostError,
+    RunMismatchError,
+    RunNotAvailableError,
+    StepMismatchError,
+)
+from ._records import Lease
 from ._run import RunContext, RunDefinition, active_run
 from ._serde import describe_error
 from .storage import Storage
@@ -19,17 +26,37 @@ class Engine:
         self, run_id: str, run: RunDefinition[P, R], /, *args: P.args, **kwargs: P.kwargs
     ) -> R:
         input_json = run.codec.dump_arguments(args, kwargs)
-        await self._storage.create_run(run_id, run.name, input_json, None)
+        record = await self._storage.create_run(run_id, run.name, input_json, None)
+        if (record.name, record.input_json) != (run.name, input_json):
+            raise RunMismatchError(
+                f"run {run_id!r} was started as {record.name}({record.input_json}), "
+                f"not as {run.name}({input_json})"
+            )
         lease = await self._storage.claim_run(run_id, self._owner, self._lease_seconds)
         if lease is None:
             raise RunNotAvailableError(
                 f"run {run_id!r} has already finished or is held by another worker"
             )
+        heartbeat = asyncio.create_task(self._keep_lease(lease))
         try:
-            with active_run(RunContext(self._storage, lease)):
+            return await self._drive(run, lease, *args, **kwargs)
+        finally:
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
+
+    async def _drive[**P, R](
+        self, run: RunDefinition[P, R], lease: Lease, /, *args: P.args, **kwargs: P.kwargs
+    ) -> R:
+        attempts = await self._storage.load_attempts(lease.run_id)
+        recorded = {attempt.step_key: attempt for attempt in attempts}
+        try:
+            with active_run(RunContext(self._storage, lease, recorded)):
                 output = await run.function(*args, **kwargs)
             output_json = run.codec.dump_result(output)
         except LeaseLostError:
+            raise
+        except StepMismatchError:
+            await self._storage.release_run(lease)
             raise
         except Exception as error:
             await self._storage.fail_run(lease, json.dumps(describe_error(error)))
@@ -39,6 +66,11 @@ class Engine:
             raise
         await self._storage.complete_run(lease, output_json)
         return run.codec.load_result(output_json)
+
+    async def _keep_lease(self, lease: Lease) -> None:
+        while True:
+            await asyncio.sleep(self._lease_seconds / 3)
+            await self._storage.renew_lease(lease, self._lease_seconds)
 
     async def close(self) -> None:
         await self._storage.close()
