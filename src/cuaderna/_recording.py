@@ -3,6 +3,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import NoReturn
 
 from pydantic import JsonValue
 
@@ -15,6 +16,8 @@ from ._serde import describe_error, hash_arguments, load_error
 from ._step import ActiveStep, active_step, retry_delay, step_failed
 from .storage import Storage
 
+StopError = BudgetExceededError | CostUnknownError
+
 
 @dataclass(slots=True)
 class Budget:
@@ -22,18 +25,15 @@ class Budget:
     limit_usd: Decimal
     spent_usd: Decimal
     unknown: AttemptCost | None = None
-    stopped: BudgetExceededError | CostUnknownError | None = None
 
-    def check(self) -> None:
-        if self.stopped is None:
-            if self.unknown is not None:
-                self.stopped = CostUnknownError(
-                    self.run_id, self.unknown.step_key, self.unknown.attempt, self.unknown.reason
-                )
-            elif self.spent_usd >= self.limit_usd:
-                self.stopped = BudgetExceededError(self.run_id, self.limit_usd, self.spent_usd)
-        if self.stopped is not None:
-            raise self.stopped
+    def stop(self) -> BudgetExceededError | CostUnknownError | None:
+        if self.unknown is not None:
+            return CostUnknownError(
+                self.run_id, self.unknown.step_key, self.unknown.attempt, self.unknown.reason
+            )
+        if self.spent_usd >= self.limit_usd:
+            return BudgetExceededError(self.run_id, self.limit_usd, self.spent_usd)
+        return None
 
     def add(self, attempt: StepAttempt) -> None:
         cost = run_cost([attempt])
@@ -50,6 +50,7 @@ class RecordingContext:
     prices: PriceTable | None = None
     budget: Budget | None = None
     step_keys: StepKeys = field(default_factory=StepKeys)
+    stopped: StopError | None = None
 
     async def execute_step(
         self,
@@ -58,6 +59,8 @@ class RecordingContext:
         args: tuple[object, ...],
         kwargs: dict[str, object],
     ) -> object:
+        if self.stopped is not None:
+            raise self.stopped
         args_json = definition.codec.dump_arguments(args, kwargs)
         first_attempt = 1
         recorded = self.recorded.get(step_key)
@@ -76,7 +79,9 @@ class RecordingContext:
             first_attempt = recorded.attempt + 1
         for attempt in range(first_attempt, definition.max_attempts + 1):
             if self.budget is not None:
-                self.budget.check()
+                stop = self.budget.stop()
+                if stop is not None:
+                    self._stop(stop)
             started_at = datetime.now(UTC)
             running = ActiveStep(f"{self.lease.run_id}:{step_key}")
             token = active_step.set(running)
@@ -112,6 +117,10 @@ class RecordingContext:
             finally:
                 active_step.reset(token)
         raise StepMismatchError(f"step {step_key!r} has more recorded attempts than it allows now")
+
+    def _stop(self, error: StopError) -> NoReturn:
+        self.stopped = error
+        raise error
 
     async def _record(self, attempt: StepAttempt) -> None:
         await self.storage.record_attempt(self.lease, attempt)
