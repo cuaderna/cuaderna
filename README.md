@@ -6,7 +6,7 @@ A *cuaderna* is a rib of a ship's hull: the structure underneath that holds ever
 
 ## Status
 
-Early development. The first goal below, resuming after a crash, is implemented on `main`, and so is the first part of the second: replaying a recorded run from code. The package on PyPI is still a placeholder, so for now it has to be installed from this repository.
+Early development. The first two goals below, resuming after a crash and replaying a recorded run, are implemented on `main`. The package on PyPI is still a placeholder, so for now it has to be installed from this repository.
 
 ## What it is
 
@@ -20,7 +20,7 @@ Every step is written to a journal with its result as soon as it finishes. Every
 - **Permissions and audit.** Tools run with explicit permissions and every call is recorded.
 - **Fault injection.** Recorded runs can be used to test how an agent reacts to a tool that fails or a malformed response.
 
-These are goals, listed in the order they will be built. The first one is implemented. Replay works from code and a run can be exported as a file; the page that shows one is not there yet.
+These are goals, listed in the order they will be built. The first two are implemented: a run resumes after a crash, replays from code, exports as a file, and a static page shows that file.
 
 ## Usage
 
@@ -90,7 +90,22 @@ The journal and the run file hold everything in plain text: prompts, tool output
 
 The journal is a SQLite file. It has to be on a local disk, not on a network drive.
 
-[examples/fix_tests](examples/fix_tests) is a complete agent that can be killed and resumed.
+## Look at a run
+
+[site](site) is a static page that shows a run file: the attempts in the order they were recorded, grouped by the process that wrote them, with the arguments, result, error and annotations of each one. It has no build step and no server side. Serve the folder and open it:
+
+```
+python -m http.server --directory site
+```
+
+It opens on [site/sample-run.json](site/sample-run.json), a real run of [examples/fix_tests](examples/fix_tests), a complete agent that asks a local model to fix a failing test. The process was killed two seconds into its second model call, and a second process took the run over and finished it. The page shows the six attempts of the first process, the 6.3 seconds until the second one started, and its three attempts. The model call that was executing when the first process died left no record and was made again, which is the one call the section above says can be charged twice.
+
+Any other run file can be picked or dropped on the page. It is read in the browser and not uploaded.
+
+Two numbers from that run, measured on the machine that recorded it:
+
+- Its nine attempts, with source code and pytest output among their arguments and results, make a file of 21,301 bytes, about 2.4 kB per attempt.
+- Live, the run took 23.9 seconds from start to finish, 6.3 of them waiting for the dead process's lease. Replaying it from the journal takes 0.5 milliseconds (median of 200 replays), because no step executes.
 
 ## Install
 
