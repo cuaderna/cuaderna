@@ -11,7 +11,11 @@ const MODEL_FACTS = [
 const statusLine = document.querySelector("#status");
 const timeline = document.querySelector("#timeline");
 const detail = document.querySelector("#detail");
+const fileInput = document.querySelector("#file");
+const scrubber = document.querySelector("#scrubber");
+const scrubberPosition = document.querySelector("#scrubber-position");
 const stackedLayout = window.matchMedia("(max-width: 60rem)");
+let rows = [];
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -22,6 +26,14 @@ function element(tag, className, text) {
     node.textContent = text;
   }
   return node;
+}
+
+function hasTextFields(record, names) {
+  return (
+    record !== null &&
+    typeof record === "object" &&
+    names.every((name) => typeof record[name] === "string")
+  );
 }
 
 function parseRunFile(text) {
@@ -35,9 +47,11 @@ function parseRunFile(text) {
     file !== null &&
     typeof file === "object" &&
     file.format === RUN_FILE_FORMAT &&
-    file.run !== null &&
-    typeof file.run === "object" &&
-    Array.isArray(file.attempts);
+    hasTextFields(file.run, ["run_id", "name", "status", "created_at"]) &&
+    Array.isArray(file.attempts) &&
+    file.attempts.every((attempt) =>
+      hasTextFields(attempt, ["step_key", "name", "status", "started_at", "finished_at"]),
+    );
   if (!isRunFile) {
     throw new Error(`This is not a run file in the ${RUN_FILE_FORMAT} format.`);
   }
@@ -174,21 +188,40 @@ function showAttemptDetail(attempt) {
   detail.replaceChildren(...nodes);
 }
 
-function rowButton(cells, status, onSelect) {
+function rowButton(cells, status, show) {
   const button = element("button", `row ${status}`);
   button.type = "button";
   button.append(...cells);
+  const position = rows.length;
+  rows.push({ button, show });
   button.addEventListener("click", () => {
-    for (const other of timeline.querySelectorAll("button[aria-current]")) {
-      other.removeAttribute("aria-current");
-    }
-    button.setAttribute("aria-current", "true");
-    onSelect();
+    selectRow(position);
     if (stackedLayout.matches) {
       detail.focus();
     }
   });
   return button;
+}
+
+function positionText(position) {
+  if (position === 0) {
+    return "the whole run";
+  }
+  return `attempt ${position} of ${rows.length - 1}`;
+}
+
+function selectRow(position) {
+  rows.forEach(({ button }, index) => {
+    button.classList.toggle("ahead", position > 0 && index > position);
+    if (index === position) {
+      button.setAttribute("aria-current", "true");
+    } else {
+      button.removeAttribute("aria-current");
+    }
+  });
+  rows[position].show();
+  scrubber.value = String(position);
+  scrubberPosition.textContent = positionText(position);
 }
 
 function attemptRow(attempt, longestSeconds) {
@@ -238,6 +271,7 @@ function groupItem(group, position, longestSeconds) {
 
 function showRunFile(file) {
   const { run, attempts } = file;
+  rows = [];
   const durations = attempts.map((attempt) =>
     secondsBetween(attempt.started_at, attempt.finished_at),
   );
@@ -266,8 +300,9 @@ function showRunFile(file) {
     items.push(element("li", "takeover", "This run has no recorded attempts."));
   }
   timeline.replaceChildren(...items);
-  runButton.setAttribute("aria-current", "true");
-  showRunDetail(run, attempts.length);
+  scrubber.max = String(attempts.length);
+  selectRow(0);
+  statusLine.classList.remove("problem");
   statusLine.textContent = `Showing run ${run.run_id}: ${attempts.length} attempts, ${run.status}.`;
 }
 
@@ -276,20 +311,45 @@ function showProblem(message) {
   statusLine.classList.add("problem");
 }
 
-async function loadSample() {
+function showRunText(text) {
   try {
-    const response = await fetch(SAMPLE_URL);
-    if (!response.ok) {
-      throw new Error(`The sample run could not be loaded (HTTP ${response.status}).`);
-    }
-    showRunFile(parseRunFile(await response.text()));
+    showRunFile(parseRunFile(text));
   } catch (error) {
-    if (error instanceof TypeError) {
-      showProblem("The sample run could not be loaded.");
-    } else {
-      showProblem(error.message);
-    }
+    showProblem(error.message);
   }
 }
+
+async function loadSample() {
+  let response;
+  try {
+    response = await fetch(SAMPLE_URL);
+  } catch {
+    showProblem("The sample run could not be loaded.");
+    return;
+  }
+  if (!response.ok) {
+    showProblem(`The sample run could not be loaded (HTTP ${response.status}).`);
+    return;
+  }
+  showRunText(await response.text());
+}
+
+async function openFile(file) {
+  if (file) {
+    showRunText(await file.text());
+  }
+}
+
+fileInput.addEventListener("change", () => openFile(fileInput.files[0]));
+document.addEventListener("dragover", (event) => event.preventDefault());
+document.addEventListener("drop", (event) => {
+  event.preventDefault();
+  openFile(event.dataTransfer.files[0]);
+});
+scrubber.addEventListener("input", () => {
+  const position = Number(scrubber.value);
+  selectRow(position);
+  rows[position].button.scrollIntoView({ block: "nearest" });
+});
 
 loadSample();
