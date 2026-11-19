@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+    >
+    <meta
+      name="description"
+      content="A recorded run of an agent, step by step: what each step received, what it returned, and where the process was killed and another one continued."
+    >
+    <title>cuaderna: a recorded run</title>
+    <link rel="stylesheet" href="style.css">
+    <script type="module" src="timeline.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1>cuaderna</h1>
+      <p>
+        Every step an agent executes is written to a journal. This page reads one run exported from
+        that journal and shows it as it was recorded. Nothing is executed here.
+      </p>
+    </header>
+    <p id="status" role="status">Loading the sample run.</p>
+    <main>
+      <section aria-labelledby="timeline-title">
+        <h2 id="timeline-title">Recorded attempts</h2>
+        <ol id="timeline"></ol>
+      </section>
+    </main>
+    <footer>
+      <a href="https://github.com/cuaderna/cuaderna">cuaderna on GitHub</a>
+    </footer>
+  </body>
+</html>
