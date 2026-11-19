@@ -56,7 +56,7 @@ class Engine:
                     f"run {run_id!r} was started with code version {record.code_version!r} "
                     f"and cannot be resumed with {run.code_version!r}"
                 )
-            lease = await self._storage.claim_run(run_id, self._owner, self._lease_seconds)
+            lease = await self._claim(run_id)
             if lease is None:
                 pause = min(self._lease_seconds / 3, _LONGEST_CLAIM_WAIT_SECONDS)
                 if give_up_at is not None:
@@ -75,10 +75,26 @@ class Engine:
             heartbeat.cancel()
             await asyncio.gather(heartbeat, return_exceptions=True)
 
+    async def _claim(self, run_id: str) -> Lease | None:
+        claim = asyncio.ensure_future(
+            self._storage.claim_run(run_id, self._owner, self._lease_seconds)
+        )
+        try:
+            return await asyncio.shield(claim)
+        except asyncio.CancelledError:
+            [lease] = await asyncio.gather(claim, return_exceptions=True)
+            if isinstance(lease, Lease):
+                await self._storage.release_run(lease)
+            raise
+
     async def _drive[**P, R](
         self, run: RunDefinition[P, R], lease: Lease, /, *args: P.args, **kwargs: P.kwargs
     ) -> R:
-        attempts = await self._storage.load_attempts(lease.run_id)
+        try:
+            attempts = await self._storage.load_attempts(lease.run_id)
+        except BaseException:
+            await self._storage.release_run(lease)
+            raise
         recorded = {attempt.step_key: attempt for attempt in attempts}
         try:
             with active_run(RunContext(self._storage, lease, recorded)):
