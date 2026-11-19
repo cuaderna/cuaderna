@@ -24,7 +24,7 @@ type _AsyncFunction[**P, R] = Callable[P, Coroutine[Any, Any, R]]
 
 _LONGEST_RETRY_DELAY_SECONDS = 60.0
 
-_inside_step: ContextVar[bool] = ContextVar("cuaderna_inside_step", default=False)
+_active_step_key: ContextVar[str | None] = ContextVar("cuaderna_active_step_key", default=None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +78,13 @@ def retry_delay(failed_attempt: int, backoff_seconds: float) -> float:
     return min(backoff_seconds * 2 ** (failed_attempt - 1), _LONGEST_RETRY_DELAY_SECONDS)
 
 
+def idempotency_key() -> str:
+    key = _active_step_key.get()
+    if key is None:
+        raise StepCallError("idempotency_key was called outside a step")
+    return key
+
+
 def _define(
     function: Callable[..., Any], *, name: str | None, max_attempts: int, backoff_seconds: float
 ) -> _AsyncFunction[..., Any]:
@@ -97,7 +104,7 @@ def _define(
         context = current_run()
         if context is None:
             raise StepCallError(f"step {step_name!r} was called outside a run")
-        if _inside_step.get():
+        if _active_step_key.get() is not None:
             raise StepCallError(f"step {step_name!r} was called inside another step")
         step_key = context.reserve_step_key(step_name)
         return _execute(context, definition, step_key, args, kwargs)
@@ -130,7 +137,7 @@ async def _execute(
         first_attempt = recorded.attempt + 1
     for attempt in range(first_attempt, definition.max_attempts + 1):
         started_at = datetime.now(UTC)
-        token = _inside_step.set(True)
+        token = _active_step_key.set(f"{context.lease.run_id}:{step_key}")
         try:
             result_json = definition.codec.dump_result(await definition.invoke(*args, **kwargs))
         except Exception as error:
@@ -154,7 +161,7 @@ async def _execute(
             await context.storage.record_attempt(context.lease, succeeded)
             return definition.codec.load_result(result_json)
         finally:
-            _inside_step.reset(token)
+            _active_step_key.reset(token)
     raise StepMismatchError(f"step {step_key!r} has more recorded attempts than it allows now")
 
 
