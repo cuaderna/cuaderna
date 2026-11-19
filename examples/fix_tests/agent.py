@@ -1,11 +1,13 @@
 import argparse
 import asyncio
+import getpass
 import json
 import os
 import shutil
 import subprocess
 import sys
 import urllib.request
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -20,6 +22,7 @@ _MODEL_URL = "http://localhost:11434/api/chat"
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 _EDIT_TOOL = "write_file"
 _PRICES = Path(__file__).parent / "prices.json"
+_POLICY = Path(__file__).parent / "policy.json"
 _LEASE_SECONDS = 5.0
 _PUBLISHED_WORKDIR = "/tmp/fix-tests"
 _INSTRUCTIONS = (
@@ -136,19 +139,22 @@ def _post_json(url: str, headers: dict[str, str], body: dict[str, JsonValue]) ->
 def write_file(repo: str, edit: FileEdit) -> None:
     print(f"  writing {edit.path}")
     target = Path(repo) / edit.path
-    if target not in _editable_files(Path(repo)):
-        raise cuaderna.TerminalError(f"the model asked to write {edit.path!r}, which is off limits")
     target.write_text(edit.content, encoding="utf-8")
 
 
-@cuaderna.run
+@cuaderna.run(policy=cuaderna.Policy.load(_POLICY))
 async def fix_tests(repo: str, provider: str, model: str, max_rounds: int) -> Summary:
     report = await run_tests(repo)
     rounds = 0
+    refusal = ""
     while not report.passed and rounds < max_rounds:
         sources = await read_sources(repo)
-        edit = await ask_model(provider, model, sources, report.output)
-        await write_file(repo, edit)
+        edit = await ask_model(provider, model, sources, report.output + refusal)
+        try:
+            await write_file(repo, edit)
+            refusal = ""
+        except cuaderna.PermissionDeniedError as error:
+            refusal = f"\n\n# your last edit, to {edit.path}, was refused\n{error}"
         report = await run_tests(repo)
         rounds += 1
     return Summary(fixed=report.passed, rounds=rounds)
@@ -167,6 +173,8 @@ class _Options:
     max_rounds: int
     budget: str | None
     export: Path | None
+    actor: str
+    approver: str
 
 
 async def _main(options: _Options) -> None:
@@ -179,11 +187,16 @@ async def _main(options: _Options) -> None:
         options.workdir / "journal.db",
         lease_seconds=_LEASE_SECONDS,
         prices=cuaderna.PriceTable.load(_PRICES),
+        actor=options.actor,
     )
     run = fix_tests if options.budget is None else fix_tests.with_budget(options.budget)
     try:
-        summary = await engine.execute(
-            options.run_id, run, str(repo), options.provider, options.model, options.max_rounds
+        summary = await _until_approved(
+            engine,
+            options,
+            lambda: engine.execute(
+                options.run_id, run, str(repo), options.provider, options.model, options.max_rounds
+            ),
         )
         if options.export is not None:
             await engine.export_run(
@@ -197,6 +210,26 @@ async def _main(options: _Options) -> None:
         await engine.close()
     print(f"cost: {cost.total_usd} USD, {cost.unknown_attempts} attempts of unknown cost")
     print(f"fixed: {summary.fixed}, rounds: {summary.rounds}")
+
+
+async def _until_approved(
+    engine: cuaderna.Engine, options: _Options, execute: Callable[[], Awaitable[Summary]]
+) -> Summary:
+    while True:
+        try:
+            return await execute()
+        except cuaderna.ApprovalRequiredError:
+            await _answer_pending(engine, options)
+
+
+async def _answer_pending(engine: cuaderna.Engine, options: _Options) -> None:
+    for request in await engine.pending(options.run_id):
+        print(f"approval needed for {request.step_key} with {request.args_json}")
+        answer = await asyncio.to_thread(input, "  approve? [y/N] ")
+        if answer.strip().lower() == "y":
+            await engine.approve(options.run_id, request.step_key, by=options.approver)
+        else:
+            await engine.reject(options.run_id, request.step_key, by=options.approver)
 
 
 def _hide_local_paths(workdir: Path, _field: str, value: JsonValue) -> JsonValue:
@@ -221,6 +254,10 @@ if __name__ == "__main__":
     parser.add_argument("--max-rounds", type=int, default=5)
     parser.add_argument("--budget", help="stop the run when it has spent this many USD")
     parser.add_argument("--export", type=Path, help="write the finished run to this file")
+    parser.add_argument("--actor", default="fix-tests-example", help="who the run is recorded as")
+    parser.add_argument(
+        "--approver", default=getpass.getuser(), help="who answers the approval requests"
+    )
     arguments = parser.parse_args()
     asyncio.run(
         _main(
@@ -232,6 +269,8 @@ if __name__ == "__main__":
                 arguments.max_rounds,
                 arguments.budget,
                 arguments.export,
+                arguments.actor,
+                arguments.approver,
             )
         )
     )

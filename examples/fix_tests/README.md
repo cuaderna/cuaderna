@@ -75,6 +75,21 @@ cost: 0.0001764 USD, 0 attempts of unknown cost
 fixed: True, rounds: 1
 ```
 
+## Let a person approve an edit
+
+The run carries the policy in [policy.json](policy.json). The look-only steps are allowed, `write_file` is allowed for the source files, and an edit to a test file needs a person. Nothing else is named, so anything else is denied. The sample repo is flat, with no package or tests directory, so the rule for source files is `under` the repo root and the rule for tests is a `glob` on `test_*`. Because a deny wins over an ask and an ask over an allow, the tests rule decides for those files.
+
+When the model proposes an edit the policy denies, the run does not stop: the reason is appended to the pytest output the next `ask_model` call receives, so the model can try another file. That text is an argument of the step, so it is recorded and the run stays the same on resume.
+
+When the model proposes an edit to a test file, the run stops with `ApprovalRequiredError`. The command line prints the step and its arguments and asks:
+
+```
+approval needed for write_file#1 with {"edit":{"content":"...","path":"test_pricing.py"},"repo":"/tmp/fix-tests/repo"}
+  approve? [y/N]
+```
+
+`y` approves it; anything else rejects it, and a rejection reaches the run as a denial that the model is told about. The answer is recorded under the name given with `--approver`, which is your OS user name by default, and the run continues in the same process. `--actor` (default `fix-tests-example`) is the name the engine records for every step the run executes. Both are recorded claims, not verified identities.
+
 ## Export the run
 
 Add `--export run.json` to write the finished run as one file:
@@ -92,5 +107,5 @@ The directory given on the command line is replaced by `/tmp/fix-tests` everywhe
 - Reading the sources is a step because it is input that can change between executions, so its result is recorded rather than recomputed.
 - `ask_model` has `max_attempts=3`, so a transient failure of the model call is retried before the run fails.
 - `ask_model` calls `cuaderna.annotate` with what `cuaderna.usage.from_anthropic` or `from_ollama` makes of the response, right after it arrives and before parsing the answer, so a call that was paid for and then failed to parse still has its cost.
-- `write_file` writes the whole file, so repeating it is harmless. It refuses paths outside the editable files with `TerminalError`, so a bad model answer is not retried.
+- `write_file` writes the whole file, so repeating it is harmless. Which paths it may write is the policy's call, not the step's.
 - `fix_tests` is plain Python with a loop; the durability comes from the decorators on the steps, not from a separate workflow language.
