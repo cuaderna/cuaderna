@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
+from ._cost import RunCost, run_cost
 from ._errors import (
     LeaseLostError,
     ReplayDivergedError,
@@ -103,6 +104,9 @@ class Engine:
     async def steps(self, run_id: str) -> list[StepAttempt]:
         await self.run_record(run_id)
         return await self._storage.load_attempts(run_id)
+
+    async def cost(self, run_id: str) -> RunCost:
+        return run_cost(await self.steps(run_id))
 
     async def replay[R](self, run_id: str, run: RunDefinition[..., R], /) -> R:
         record = await self.run_record(run_id)
