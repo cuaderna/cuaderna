@@ -1,0 +1,43 @@
+{
+  "format": "cuaderna.prices/1",
+  "id": "example-2026-11-19",
+  "currency": "USD",
+  "models": [
+    {
+      "provider": "anthropic",
+      "names": ["claude-haiku-5-5"],
+      "rates": {
+        "input": "0.10",
+        "output": "0.50",
+        "cache_read": "0.01",
+        "cache_write": {"5m": "0.125", "1h": "0.20"}
+      },
+      "variants": [
+        {
+          "when": {"input_tokens_over": 100000},
+          "rates": {
+            "input": "0.50",
+            "output": "2.50",
+            "cache_read": "0.05",
+            "cache_write": {"5m": "0.625", "1h": "1"}
+          }
+        }
+      ]
+    },
+    {
+      "provider": "anthropic",
+      "names": ["claude-opus-5-5"],
+      "rates": {
+        "input": "4",
+        "output": "20",
+        "cache_read": "0.20",
+        "cache_write": {"5m": "5", "1h": "8"}
+      }
+    },
+    {
+      "provider": "ollama",
+      "names": ["gpt-oss:20b"],
+      "rates": {"input": "0", "output": "0"}
+    }
+  ]
+}
