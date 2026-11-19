@@ -5,6 +5,7 @@ from ._errors import (
     InvalidDefinitionError,
     JournalConflictError,
     LeaseLostError,
+    PriceTableError,
     ReplayDivergedError,
     RunFailedError,
     RunFileError,
@@ -19,6 +20,7 @@ from ._errors import (
     TerminalError,
 )
 from ._library import new_id, now, random
+from ._prices import PriceTable
 from ._records import AttemptStatus, RunRecord, RunStatus, StepAttempt
 from ._run import run
 from ._step import annotate, idempotency_key, step
@@ -30,6 +32,8 @@ __all__ = [
     "InvalidDefinitionError",
     "JournalConflictError",
     "LeaseLostError",
+    "PriceTable",
+    "PriceTableError",
     "ReplayDivergedError",
     "RunFailedError",
     "RunFileError",
