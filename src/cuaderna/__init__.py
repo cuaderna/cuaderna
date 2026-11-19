@@ -6,8 +6,11 @@ from ._errors import (
     LeaseLostError,
     RunNotAvailableError,
     SchemaVersionError,
+    StepCallError,
+    StepFailedError,
 )
 from ._run import run
+from ._step import step
 
 __all__ = [
     "CuadernaError",
@@ -17,5 +20,8 @@ __all__ = [
     "LeaseLostError",
     "RunNotAvailableError",
     "SchemaVersionError",
+    "StepCallError",
+    "StepFailedError",
     "run",
+    "step",
 ]

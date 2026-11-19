@@ -20,3 +20,16 @@ class InvalidDefinitionError(CuadernaError):
 
 class RunNotAvailableError(CuadernaError):
     pass
+
+
+class StepCallError(CuadernaError):
+    pass
+
+
+class StepFailedError(CuadernaError):
+    def __init__(self, step_key: str, error_type: str, message: str, traceback: str) -> None:
+        super().__init__(f"step {step_key!r} failed with {error_type}: {message}")
+        self.step_key = step_key
+        self.error_type = error_type
+        self.message = message
+        self.traceback = traceback
