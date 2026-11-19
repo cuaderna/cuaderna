@@ -12,7 +12,7 @@ uv sync
 
 ## Checks
 
-Run these before opening a pull request. CI runs the same ones on Python 3.12, 3.13 and 3.14.
+Run these before pushing or opening a pull request. They are not run automatically.
 
 ```
 uv run ruff check
