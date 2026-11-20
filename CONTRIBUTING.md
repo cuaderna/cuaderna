@@ -19,7 +19,7 @@ uv sync
 - `src/cuaderna/`: the library. Its only runtime dependency is pydantic.
 - `tests/`: the test suite, one file per behavior.
 - `examples/fix_tests/`: a sample agent that uses the library, with its policy, its fault plan and the script that runs the faults.
-- `site/`: a static page that shows a recorded run. No build step and no dependencies.
+- `site/`: a static page that shows a recorded run. No build step and no dependencies. What is on `main` is published at https://cuaderna.vercel.app.
 - `docs/`: one page per topic. The README says what the project is for and stays short; detail goes in `docs/`.
 
 ## Checks

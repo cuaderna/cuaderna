@@ -2,7 +2,7 @@
 
 A static page that shows a recorded run, and the sample run it opens on.
 
-[site](../site) is a static page that shows a run file: the attempts in the order they were recorded, grouped by the process that wrote them, with the arguments, result, error and annotations of each one, the cost of each model call with the parts it is made of, what each step was allowed to do and who approved it, and the total of the run. The page adds up what the file holds and prices nothing itself. It has no build step and no server side. Serve the folder and open it:
+[site](../site) is a static page that shows a run file: the attempts in the order they were recorded, grouped by the process that wrote them, with the arguments, result, error and annotations of each one, the cost of each model call with the parts it is made of, what each step was allowed to do and who approved it, and the total of the run. The page adds up what the file holds and prices nothing itself. It has no build step and no server side. It is published at https://cuaderna.vercel.app from what is on `main`. To open it from a clone, serve the folder:
 
 ```
 python -m http.server --directory site
@@ -24,7 +24,7 @@ When [site/runs.json](../site/runs.json) lists more than one run, the page shows
 
 A run file in the `cuaderna.run/2` format that marks the run as an experiment gets one line under the status: that it is an experiment and not something that happened, the run it replays, the fault and the step where it was applied (or that nothing was changed), and the first step that had to be executed again for real, if there is one. An attempt the fault was injected into is labelled "injected" and one answered from the recording "from the recording", next to "denied" and "approved"; its details say which fault and kind, whether the step itself ran, and which run and attempt the answer came from.
 
-The page carries a Content-Security-Policy and a no-referrer policy in meta tags, but `frame-ancestors` cannot be set from a meta tag, so whoever hosts the page should send the header `Content-Security-Policy: frame-ancestors 'none'`.
+The page carries a Content-Security-Policy and a no-referrer policy in meta tags, but `frame-ancestors` cannot be set from a meta tag, so the host has to send the header `Content-Security-Policy: frame-ancestors 'none'`. [site/vercel.json](../site/vercel.json) makes Vercel send it for the published page, and skips a deployment when a push did not change `site/`.
 
 The page shows what the file says and nothing more. A status it does not know is shown as an unknown status, a cost that is missing or cannot be read as "unknown", a time that is negative or out of range as "invalid time", and an authorization that is missing or unreadable as "not recorded" or "unreadable", never as "ok". Each attempt says whether it carries a chain hash, but the page does not check the chain: use `verify` for that. The labels are plain functions in [site/labels.js](../site/labels.js), tested with `node --test site/labels.test.js`.
 

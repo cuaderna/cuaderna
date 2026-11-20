@@ -54,7 +54,7 @@ Kill it while it works and run it again: it continues from the last step it reco
 
 ## See it
 
-[examples/fix_tests](examples/fix_tests/README.md) is a complete agent that fixes the failing tests of a small repo. [The run page](docs/run-page.md) is a static page that shows a recorded run of it: one process killed during its model call, a second one stopped by its budget, and a third one that finished the run, with what each step received, returned and cost.
+[examples/fix_tests](examples/fix_tests/README.md) is a complete agent that fixes the failing tests of a small repo. [The run page](https://cuaderna.vercel.app) shows a recorded run of it: one process killed during its model call, a second one stopped by its budget, and a third one that finished the run, with what each step received, returned and cost. It also offers the same run replayed with one fault injected at a time.
 
 ## Documentation
 
