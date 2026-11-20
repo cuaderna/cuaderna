@@ -122,3 +122,20 @@ async def test_attempts_show_which_claim_of_the_run_wrote_them(engine: Engine) -
     assert first is not None
     assert second is not None
     assert first < second
+
+
+@cuaderna.step
+async def impostor() -> str:
+    cuaderna.annotate({"cuaderna.reuse": 1, "cuaderna.fault": 2, "mine": 3})
+    return "done"
+
+
+async def test_a_step_cannot_annotate_the_keys_the_library_reserves(engine: Engine) -> None:
+    @cuaderna.run
+    async def flow() -> str:
+        return await impostor()
+
+    await engine.execute("run-1", flow)
+
+    [attempt] = await engine.steps("run-1")
+    assert json.loads(attempt.annotations_json or "{}") == {"mine": 3}
