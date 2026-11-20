@@ -139,11 +139,21 @@ def _is_under(value: str, directory: str) -> bool:
     return False
 
 
+def _is_number(value: JsonValue) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _same_json_value(left: JsonValue, right: JsonValue) -> bool:
+    if _is_number(left) and _is_number(right):
+        return left == right
+    return canonical_json(left) == canonical_json(right)
+
+
 def _holds(condition: _Condition, value: JsonValue) -> bool:
     if "equals" in condition.model_fields_set:
-        return canonical_json(value) == canonical_json(condition.equals)
+        return _same_json_value(value, condition.equals)
     if "member_of" in condition.model_fields_set:
-        return canonical_json(value) in [canonical_json(option) for option in condition.member_of]
+        return any(_same_json_value(value, option) for option in condition.member_of)
     if not isinstance(value, str):
         raise _Unevaluable
     if "glob" in condition.model_fields_set:

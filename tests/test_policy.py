@@ -97,13 +97,28 @@ def test_an_unevaluable_rule_wins_over_a_matching_allow_and_is_listed_in_file_or
 
 @pytest.mark.parametrize(
     ("expected", "actual", "holds"),
-    [(True, True, True), (True, 1, False), (1, True, False), ("a", "a", True), (None, None, True)],
+    [
+        (True, True, True),
+        (True, 1, False),
+        (1, True, False),
+        (1, 1.0, True),
+        (100, 1e2, True),
+        (100.0, 100, True),
+        (False, 0, False),
+        (0, False, False),
+        (1, 2, False),
+        ("a", "a", True),
+        (None, None, True),
+    ],
 )
 def test_equals_compares_json_values_by_type(expected: object, actual: object, holds: bool) -> None:
     assert allows({"value": {"equals": expected}}, {"value": actual}) is holds
 
 
-@pytest.mark.parametrize(("actual", "holds"), [("b", True), (2, True), (True, False), ("c", False)])
+@pytest.mark.parametrize(
+    ("actual", "holds"),
+    [("b", True), (2, True), (2.0, True), (True, False), (1, False), ("c", False)],
+)
 def test_in_holds_for_any_listed_value(actual: object, holds: bool) -> None:
     assert allows({"value": {"in": ["a", "b", 2]}}, {"value": actual}) is holds
 
