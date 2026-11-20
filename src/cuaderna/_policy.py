@@ -1,6 +1,7 @@
 import json
 import posixpath
 import re
+import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
@@ -26,6 +27,12 @@ Reason = Literal["rule", "no_rule", "unevaluable"]
 
 _CLOSED = ConfigDict(extra="forbid", frozen=True)
 _DRIVE_LETTER = re.compile(r"^[A-Za-z]:")
+_SHORT_NAME_MARKER = re.compile(r"~[0-9]")
+_DEVICE_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{number}" for number in range(1, 10)}
+    | {f"LPT{number}" for number in range(1, 10)}
+)
 
 
 class _Unevaluable(Exception):
@@ -94,15 +101,42 @@ def _lookup(arguments: JsonValue, path: str) -> JsonValue:
     return current
 
 
+def _is_ambiguous_component(component: str) -> bool:
+    if any(ord(character) < 32 for character in component):
+        return True
+    if component not in (".", "..") and component.endswith((".", " ")):
+        return True
+    if ":" in component or _SHORT_NAME_MARKER.search(component):
+        return True
+    return component.split(".")[0].strip().upper() in _DEVICE_NAMES
+
+
+def _has_ambiguous_spelling(slashed: str) -> bool:
+    if unicodedata.normalize("NFC", slashed) != slashed:
+        return True
+    without_drive = _DRIVE_LETTER.sub("", slashed)
+    return any(_is_ambiguous_component(part) for part in without_drive.split("/"))
+
+
+def _is_inside(normalized: str, base: str) -> bool:
+    if base == ".":
+        return normalized != ".." and not normalized.startswith("../")
+    return normalized == base or normalized.startswith(base + "/")
+
+
 def _is_under(value: str, directory: str) -> bool:
     slashed = _with_forward_slashes(value)
+    if _has_ambiguous_spelling(slashed):
+        raise _Unevaluable
     if slashed.startswith("/") or _DRIVE_LETTER.match(slashed):
         return False
     normalized = posixpath.normpath(slashed)
     base = posixpath.normpath(_with_forward_slashes(directory))
-    if base == ".":
-        return normalized != ".." and not normalized.startswith("../")
-    return normalized == base or normalized.startswith(base + "/")
+    if _is_inside(normalized, base):
+        return True
+    if _is_inside(normalized.casefold(), base.casefold()):
+        raise _Unevaluable
+    return False
 
 
 def _holds(condition: _Condition, value: JsonValue) -> bool:
@@ -113,7 +147,11 @@ def _holds(condition: _Condition, value: JsonValue) -> bool:
     if not isinstance(value, str):
         raise _Unevaluable
     if "glob" in condition.model_fields_set:
-        return fnmatchcase(value, condition.glob)
+        if fnmatchcase(value, condition.glob):
+            return True
+        if fnmatchcase(value.casefold(), condition.glob.casefold()):
+            raise _Unevaluable
+        return False
     return _is_under(value, condition.under)
 
 
