@@ -9,12 +9,14 @@ from pydantic import JsonValue
 import cuaderna
 from cuaderna import Engine, JournalTamperedError, RunNotFoundError
 from cuaderna._chain import first_link, verified_head
+from cuaderna.storage import Storage
 from cuaderna.storage._migrations import pending_statements
 from cuaderna.storage._sqlite import SqliteStorage
 
-from .storage.contract import attempt_for
+from .storage.contract import attempt_for, claimed_run
 
 STATEMENTS_UP_TO_VERSION_3 = 12
+STATEMENTS_UP_TO_VERSION_5 = len(pending_statements(0)) - 1
 HEX_64 = re.compile(r"[0-9a-f]{64}")
 
 
@@ -27,6 +29,16 @@ async def record(value: str) -> str:
 @cuaderna.run
 async def chain(values: list[str]) -> list[str]:
     return [await record(value) for value in values]
+
+
+@cuaderna.step(max_attempts=1)
+async def broken(value: str) -> str:
+    raise ValueError(value)
+
+
+@cuaderna.run
+async def failing(value: str) -> str:
+    return await broken(value)
 
 
 @pytest.fixture
@@ -43,6 +55,12 @@ def edit_journal(journal_path: Path, statement: str) -> None:
     connection.execute(statement)
     connection.commit()
     connection.close()
+
+
+async def head_of_unfinished_run(storage: Storage) -> str:
+    record_of_run = await storage.get_run("run")
+    assert record_of_run is not None
+    return verified_head("run", record_of_run, await storage.load_attempts("run"))
 
 
 def blank_result(path: str, value: JsonValue) -> JsonValue:
@@ -101,12 +119,108 @@ async def test_a_removed_middle_attempt_is_found_at_the_next_one(
     assert raised.value.step_key == "record#3"
 
 
-async def test_a_removed_last_attempt_changes_the_head(engine: Engine, journal_path: Path) -> None:
+async def test_a_removed_last_attempt_of_an_unfinished_run_changes_the_head(
+    journal_path: Path,
+) -> None:
+    storage = SqliteStorage(journal_path)
+    try:
+        lease = await claimed_run(storage)
+        await storage.record_attempt(lease, attempt_for("step#1"))
+        await storage.record_attempt(lease, attempt_for("step#2"))
+        head = await head_of_unfinished_run(storage)
+    finally:
+        await storage.close()
+    edit_journal(journal_path, "DELETE FROM step_attempts WHERE step_key = 'step#2'")
+    reopened = SqliteStorage(journal_path)
+    try:
+        assert await head_of_unfinished_run(reopened) != head
+    finally:
+        await reopened.close()
+
+
+async def test_an_unfinished_run_verifies_with_no_seal(journal: Storage) -> None:
+    lease = await claimed_run(journal)
+    await journal.record_attempt(lease, attempt_for("step#1"))
+
+    record_of_run = await journal.get_run("run")
+
+    assert record_of_run is not None
+    assert record_of_run.seal is None
+    assert HEX_64.fullmatch(await head_of_unfinished_run(journal))
+
+
+async def test_a_forged_output_of_a_completed_run_is_found(
+    engine: Engine, journal_path: Path
+) -> None:
+    await engine.execute("run-1", chain, ["a", "b"])
+    connection = sqlite3.connect(journal_path)
+    connection.execute("UPDATE runs SET output_json = '[\"forged\"]'")
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(JournalTamperedError, match="seal") as raised:
+        await engine.verify("run-1")
+
+    assert (raised.value.run_id, raised.value.step_key, raised.value.attempt) == (
+        "run-1",
+        None,
+        None,
+    )
+
+
+async def test_removed_last_attempts_of_a_completed_run_are_found(
+    engine: Engine, journal_path: Path
+) -> None:
     await engine.execute("run-1", chain, ["a", "b", "c"])
-    head = await engine.verify("run-1")
     edit_journal(journal_path, "DELETE FROM step_attempts WHERE step_key = 'record#3'")
 
-    assert await engine.verify("run-1") != head
+    with pytest.raises(JournalTamperedError, match="seal"):
+        await engine.verify("run-1")
+
+
+async def test_a_finished_run_without_a_seal_is_found(engine: Engine, journal_path: Path) -> None:
+    await engine.execute("run-1", chain, ["a"])
+    connection = sqlite3.connect(journal_path)
+    connection.execute("UPDATE runs SET seal = NULL")
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(JournalTamperedError, match="no seal"):
+        await engine.verify("run-1")
+
+
+async def test_a_failed_run_is_sealed(engine: Engine, journal_path: Path) -> None:
+    with pytest.raises(cuaderna.StepFailedError):
+        await engine.execute("run-1", failing, "x")
+    await engine.verify("run-1")
+    connection = sqlite3.connect(journal_path)
+    connection.execute("UPDATE runs SET error_json = '\"forged\"'")
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(JournalTamperedError, match="seal"):
+        await engine.verify("run-1")
+
+
+async def test_a_version_5_journal_migrates_and_new_runs_are_sealed(journal_path: Path) -> None:
+    connection = sqlite3.connect(journal_path)
+    for statement in pending_statements(0)[:STATEMENTS_UP_TO_VERSION_5]:
+        connection.execute(statement)
+    connection.execute("PRAGMA user_version = 5")
+    connection.commit()
+    connection.close()
+    engine = Engine(journal_path)
+    try:
+        await engine.execute("run-1", chain, ["a"])
+        head = await engine.verify("run-1")
+    finally:
+        await engine.close()
+
+    assert HEX_64.fullmatch(head)
+    connection = sqlite3.connect(journal_path)
+    assert connection.execute("PRAGMA user_version").fetchone() == (6,)
+    assert connection.execute("SELECT seal FROM runs").fetchone() != (None,)
+    connection.close()
 
 
 @pytest.mark.parametrize("as_run_id", [None, "copy"])

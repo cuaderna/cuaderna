@@ -22,6 +22,7 @@ class _RunSection(BaseModel):
     error: JsonValue
     created_at: datetime
     finished_at: datetime | None
+    seal: str | None = None
 
 
 class _AttemptSection(BaseModel):
@@ -66,6 +67,7 @@ def dump_run_file(record: RunRecord, attempts: list[StepAttempt], redact: Redact
             error=stored("error", record.error_json),
             created_at=record.created_at,
             finished_at=record.finished_at,
+            seal=record.seal if redact is None else None,
         ),
         attempts=[
             _AttemptSection(
@@ -107,6 +109,7 @@ def load_run_file(text: str, as_run_id: str | None) -> tuple[RunRecord, list[Ste
         error_json=_text(run.error) if status is RunStatus.FAILED else None,
         created_at=run.created_at,
         finished_at=run.finished_at,
+        seal=run.seal,
     )
     return record, [_attempt(section) for section in document.attempts]
 

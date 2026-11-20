@@ -26,6 +26,7 @@ class RunRecord:
     error_json: str | None
     created_at: datetime
     finished_at: datetime | None
+    seal: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

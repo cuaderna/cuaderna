@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from cuaderna._chain import first_link, next_link
+from cuaderna._chain import first_link, next_link, run_seal
 from cuaderna._errors import (
     ApprovalNotPendingError,
     JournalConflictError,
@@ -32,7 +32,7 @@ from cuaderna.storage._migrations import LATEST_VERSION, pending_statements
 _WAL_SWITCH_TIMEOUT_SECONDS = 5.0
 _RUN_COLUMNS = (
     "run_id, name, input_json, code_version, status, output_json, error_json, "
-    "created_at, finished_at"
+    "created_at, finished_at, seal"
 )
 _ATTEMPT_COLUMNS = (
     "step_key, name, attempt, status, args_hash, args_json, result_json, error_json, "
@@ -267,18 +267,25 @@ def _record_attempt(connection: sqlite3.Connection, lease: Lease, attempt: StepA
             ) from error
 
 
-def _chain_hash_for(
-    connection: sqlite3.Connection, run_id: str, name: str, input_json: str, attempt: StepAttempt
+def _chain_head(
+    connection: sqlite3.Connection, run_id: str, name: str, input_json: str
 ) -> str | None:
     last = connection.execute(
         "SELECT chain_hash FROM step_attempts WHERE run_id = ? ORDER BY id DESC LIMIT 1",
         (run_id,),
     ).fetchone()
     if last is None:
-        return next_link(first_link(name, input_json), attempt)
-    if last[0] is None:
+        return first_link(name, input_json)
+    return last[0]
+
+
+def _chain_hash_for(
+    connection: sqlite3.Connection, run_id: str, name: str, input_json: str, attempt: StepAttempt
+) -> str | None:
+    head = _chain_head(connection, run_id, name, input_json)
+    if head is None:
         return None
-    return next_link(last[0], attempt)
+    return next_link(head, attempt)
 
 
 def _request_approval(
@@ -379,7 +386,7 @@ def _import_run(
     with _write_transaction(connection):
         try:
             connection.execute(
-                f"INSERT INTO runs ({_RUN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                f"INSERT INTO runs ({_RUN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     record.run_id,
                     record.name,
@@ -390,6 +397,7 @@ def _import_run(
                     record.error_json,
                     _to_text(record.created_at),
                     None if record.finished_at is None else _to_text(record.finished_at),
+                    record.seal,
                 ),
             )
         except sqlite3.IntegrityError as error:
@@ -430,15 +438,24 @@ def _finish_run(
     error_json: str | None,
 ) -> None:
     with _write_transaction(connection):
+        run_row = connection.execute(
+            "SELECT name, input_json FROM runs WHERE run_id = ? AND lease_token = ? AND status = ?",
+            (lease.run_id, lease.token, RunStatus.RUNNING.value),
+        ).fetchone()
+        if run_row is None:
+            raise _lease_lost(lease)
+        head = _chain_head(connection, lease.run_id, run_row[0], run_row[1])
+        seal = None if head is None else run_seal(head, status, output_json, error_json)
         cursor = connection.execute(
             "UPDATE runs SET status = ?, output_json = ?, error_json = ?, finished_at = ?, "
-            "lease_owner = NULL, lease_expires_at = NULL "
+            "seal = ?, lease_owner = NULL, lease_expires_at = NULL "
             "WHERE run_id = ? AND lease_token = ? AND status = ?",
             (
                 status.value,
                 output_json,
                 error_json,
                 _now_text(),
+                seal,
                 lease.run_id,
                 lease.token,
                 RunStatus.RUNNING.value,
@@ -480,6 +497,7 @@ def _run_from_row(row: tuple[Any, ...]) -> RunRecord:
         error_json=row[6],
         created_at=datetime.fromisoformat(row[7]),
         finished_at=None if finished_at is None else datetime.fromisoformat(finished_at),
+        seal=row[9],
     )
 
 

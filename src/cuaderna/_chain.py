@@ -5,8 +5,10 @@ from datetime import UTC, datetime
 from pydantic import JsonValue
 
 from ._errors import JournalTamperedError
-from ._records import RunRecord, StepAttempt
+from ._records import RunRecord, RunStatus, StepAttempt
 from ._serde import canonical_json
+
+_FINISHED = (RunStatus.COMPLETED, RunStatus.FAILED)
 
 
 def first_link(name: str, input_json: str) -> str:
@@ -30,6 +32,15 @@ def next_link(previous: str, attempt: StepAttempt) -> str:
     return _digest(previous + canonical_json(recorded))
 
 
+def run_seal(head: str, status: RunStatus, output_json: str | None, error_json: str | None) -> str:
+    recorded = {
+        "status": status.value,
+        "output": _value(output_json),
+        "error": _value(error_json),
+    }
+    return _digest(head + canonical_json(recorded))
+
+
 def verified_head(run_id: str, record: RunRecord, attempts: list[StepAttempt]) -> str:
     head = first_link(record.name, record.input_json)
     for attempt in attempts:
@@ -42,7 +53,27 @@ def verified_head(run_id: str, record: RunRecord, attempts: list[StepAttempt]) -
         head = next_link(head, attempt)
         if attempt.chain_hash != head:
             raise _tampered(run_id, attempt, "does not match its chain hash")
+    if record.status in _FINISHED:
+        _check_seal(run_id, record, head)
     return head
+
+
+def _check_seal(run_id: str, record: RunRecord, head: str) -> None:
+    if record.seal is None:
+        raise JournalTamperedError(
+            f"run {run_id!r} is {record.status.value} and has no seal over its result",
+            run_id,
+            None,
+            None,
+        )
+    expected = run_seal(head, record.status, record.output_json, record.error_json)
+    if record.seal != expected:
+        raise JournalTamperedError(
+            f"the result or the last attempts of run {run_id!r} do not match its seal",
+            run_id,
+            None,
+            None,
+        )
 
 
 def _tampered(run_id: str, attempt: StepAttempt, problem: str) -> JournalTamperedError:
