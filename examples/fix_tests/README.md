@@ -23,7 +23,7 @@ Output:
   asking claude-haiku-5-5
   writing pricing.py
   running the tests
-cost: 0.0001764 USD, 0 attempts of unknown cost
+cost: 0.0001758 USD, 0 attempts of unknown cost
 fixed: True, rounds: 1
 ```
 
@@ -43,7 +43,7 @@ While the process is waiting on the model, stop it with Ctrl+C or `kill -9`. The
   asking claude-haiku-5-5
   writing pricing.py
   running the tests
-cost: 0.0001764 USD, 0 attempts of unknown cost
+cost: 0.0001758 USD, 0 attempts of unknown cost
 fixed: True, rounds: 1
 ```
 
@@ -63,7 +63,7 @@ uv run python examples/fix_tests/agent.py /tmp/fix-tests --provider anthropic --
   running the tests
   reading the sources
   asking claude-haiku-5-5
-stopped: run 'fix-tests' has spent 0.0001764 USD and its budget is 0.00005 USD
+stopped: run 'fix-tests' has spent 0.0001758 USD and its budget is 0.00005 USD
 ```
 
 The call that crossed the ceiling was made and recorded; the step after it was not. The run is not failed. The same command with `--budget 0.01` continues it and pays for nothing that is already in the journal:
@@ -71,7 +71,7 @@ The call that crossed the ceiling was made and recorded; the step after it was n
 ```
   writing pricing.py
   running the tests
-cost: 0.0001764 USD, 0 attempts of unknown cost
+cost: 0.0001758 USD, 0 attempts of unknown cost
 fixed: True, rounds: 1
 ```
 
