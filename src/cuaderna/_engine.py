@@ -135,26 +135,26 @@ class Engine:
         approvals = await self._storage.list_approvals(run_id)
         return [approval.request for approval in approvals if approval.answer is None]
 
-    async def approve(
-        self, run_id: str, step_key: str, *, by: str, note: str | None = None
-    ) -> None:
-        await self._answer(run_id, step_key, True, by, note)
+    async def approve(self, request: ApprovalRequest, *, by: str, note: str | None = None) -> None:
+        await self._answer(request, True, by, note)
 
-    async def reject(self, run_id: str, step_key: str, *, by: str, note: str | None = None) -> None:
-        await self._answer(run_id, step_key, False, by, note)
+    async def reject(self, request: ApprovalRequest, *, by: str, note: str | None = None) -> None:
+        await self._answer(request, False, by, note)
 
     async def _answer(
-        self, run_id: str, step_key: str, approved: bool, by: str, note: str | None
+        self, request: ApprovalRequest, approved: bool, by: str, note: str | None
     ) -> None:
         if not by:
             raise InvalidDefinitionError("an answer needs the name of who gives it")
-        asked = [request for request in await self.pending(run_id) if request.step_key == step_key]
-        if not asked:
+        if request not in await self.pending(request.run_id):
             raise ApprovalNotPendingError(
-                f"no pending approval for step {step_key!r} of run {run_id!r}"
+                f"the request for step {request.step_key!r} of run {request.run_id!r} "
+                "is no longer pending"
             )
         answer = ApprovalAnswer(approved, by, note, datetime.now(UTC))
-        await self._storage.answer_approval(run_id, step_key, asked[-1].args_hash, answer)
+        await self._storage.answer_approval(
+            request.run_id, request.step_key, request.args_hash, answer
+        )
 
     async def reprice(self, run_id: str, *, provider: str, model: str) -> RunCost:
         if self._prices is None:

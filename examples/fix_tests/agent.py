@@ -227,9 +227,9 @@ async def _answer_pending(engine: cuaderna.Engine, options: _Options) -> None:
         print(f"approval needed for {request.step_key} with {request.args_json}")
         answer = await asyncio.to_thread(input, "  approve? [y/N] ")
         if answer.strip().lower() == "y":
-            await engine.approve(options.run_id, request.step_key, by=options.approver)
+            await engine.approve(request, by=options.approver)
         else:
-            await engine.reject(options.run_id, request.step_key, by=options.approver)
+            await engine.reject(request, by=options.approver)
 
 
 def _hide_local_paths(workdir: Path, _field: str, value: JsonValue) -> JsonValue:

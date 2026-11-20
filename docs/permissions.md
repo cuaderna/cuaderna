@@ -30,7 +30,7 @@ try:
     await engine.execute("fix-123", fix_tests, "repo")
 except cuaderna.ApprovalRequiredError:
     for request in await engine.pending("fix-123"):
-        await engine.approve("fix-123", request.step_key, by="maxi", note="checked the diff")
+        await engine.approve(request, by="maxi", note="checked the diff")
     await engine.execute("fix-123", fix_tests, "repo")
 ```
 
@@ -39,7 +39,7 @@ except cuaderna.ApprovalRequiredError:
 - A path in `when` is a parameter name with dots into objects, read from the arguments as stored. All paths must hold. Numbers in `equals` and `in` compare by value, so `100`, `100.0` and `1e2` are the same, and a boolean is never a number. Conditions: `equals`, `in` (a list), `glob` (`fnmatch`, where `*` also matches `/`) and `under` (a relative path that stays inside a directory).
 - Use `under` for paths, not `glob`: `src/../.github/x` matches `src/*`. `under` rejects absolute paths and any `..` that leaves the directory, but it does not resolve symbolic links, so a step that follows links must check where it lands. A value that a filesystem may read as another file than its text says is refused: a component that ends in a dot or a space, or holds a colon, a `~` and a digit, a control character or a device name such as `CON`, a value not in Unicode NFC, and a value that matches `under` or `glob` only when case is ignored. A refused spelling cannot be evaluated, so it denies the step with the reason `unevaluable` whatever the other rules say.
 - The check runs before every attempt, retries included, and each attempt gets a fresh copy of the arguments as they were recorded and checked. A denied call records an attempt with status error whose step never ran, and raises `PermissionDeniedError` with `reason` and `rules`. Caught in the run, the run goes on; on resume and replay the same call raises the same error from the journal, even if the policy changed.
-- An `ask` records a request and raises `ApprovalRequiredError`. The run stays unfinished, like a run stopped at its budget, and a run stops at the first ask. `engine.pending(run_id=None)` lists open requests, for one run or for the whole journal. `engine.approve(run_id, step_key, *, by, note=None)` and `engine.reject`, with the same arguments, answer it once, from any process, and executing the run again continues from the journal. A rejection is a denial with the reason `rejected`.
+- An `ask` records a request and raises `ApprovalRequiredError`. The run stays unfinished, like a run stopped at its budget, and a run stops at the first ask. `engine.pending(run_id=None)` lists open requests, for one run or for the whole journal. `engine.approve(request, *, by, note=None)` and `engine.reject` take a request from `pending()` and answer exactly that one, once, from any process; executing the run again then continues from the journal. A request that was already answered raises `ApprovalNotPendingError`, and a newer request for the same step with other arguments is never answered in its place. A rejection is a denial with the reason `rejected`.
 - An approval is bound to the exact arguments. If the run reaches the step key with other arguments, a new request is made. The current policy decides first: an approval only matters while the decision is `ask`.
 - `actor` and `by` are recorded claims, not verified identities.
 
