@@ -104,6 +104,11 @@ class Engine:
                 raise RunNotAvailableError(
                     f"run {run_id!r} was imported: it can be read and replayed, not executed"
                 )
+            if record.experiment is not None:
+                raise RunNotAvailableError(
+                    f"run {run_id!r} is an experiment on run "
+                    f"{record.experiment.source_run_id!r}: it is continued with rerun, not execute"
+                )
             if record.status is RunStatus.FAILED:
                 error_type = (
                     load_error(record.error_json)["type"] if record.error_json else "an error"

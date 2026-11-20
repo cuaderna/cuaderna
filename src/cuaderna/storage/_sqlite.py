@@ -24,6 +24,7 @@ from cuaderna._records import (
     ApprovalAnswer,
     ApprovalRequest,
     AttemptStatus,
+    ExperimentMarker,
     Lease,
     RunRecord,
     RunStatus,
@@ -37,7 +38,7 @@ _BUSY_ATTEMPTS = 3
 _BUSY_PAUSE_SECONDS = 0.2
 _RUN_COLUMNS = (
     "run_id, name, input_json, code_version, status, output_json, error_json, "
-    "created_at, finished_at, seal, imported_at"
+    "created_at, finished_at, seal, imported_at, experiment_json"
 )
 _ATTEMPT_COLUMNS = (
     "step_key, name, attempt, status, args_hash, args_json, result_json, error_json, "
@@ -56,10 +57,17 @@ class SqliteStorage:
         self._connection: sqlite3.Connection | None = None
 
     async def create_run(
-        self, run_id: str, name: str, input_json: str, code_version: str | None
+        self,
+        run_id: str,
+        name: str,
+        input_json: str,
+        code_version: str | None,
+        experiment: ExperimentMarker | None = None,
     ) -> RunRecord:
         return await self._call(
-            lambda connection: _create_run(connection, run_id, name, input_json, code_version)
+            lambda connection: _create_run(
+                connection, run_id, name, input_json, code_version, experiment
+            )
         )
 
     async def claim_run(self, run_id: str, owner: str, lease_seconds: float) -> Lease | None:
@@ -215,12 +223,23 @@ def _create_run(
     name: str,
     input_json: str,
     code_version: str | None,
+    experiment: ExperimentMarker | None,
 ) -> RunRecord:
+    experiment_json = None if experiment is None else experiment.to_json()
     with _write_transaction(connection):
         connection.execute(
-            "INSERT INTO runs (run_id, name, input_json, code_version, status, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (run_id) DO NOTHING",
-            (run_id, name, input_json, code_version, RunStatus.RUNNING.value, _now_text()),
+            "INSERT INTO runs "
+            "(run_id, name, input_json, code_version, status, created_at, experiment_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (run_id) DO NOTHING",
+            (
+                run_id,
+                name,
+                input_json,
+                code_version,
+                RunStatus.RUNNING.value,
+                _now_text(),
+                experiment_json,
+            ),
         )
         row = connection.execute(
             f"SELECT {_RUN_COLUMNS} FROM runs WHERE run_id = ?", (run_id,)
@@ -413,7 +432,7 @@ def _import_run(
     with _write_transaction(connection):
         try:
             connection.execute(
-                f"INSERT INTO runs ({_RUN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                f"INSERT INTO runs ({_RUN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
                 (
                     record.run_id,
                     record.name,
@@ -516,6 +535,7 @@ def _lease_lost(lease: Lease) -> LeaseLostError:
 def _run_from_row(row: tuple[Any, ...]) -> RunRecord:
     finished_at = row[8]
     imported_at = row[10]
+    experiment_json = row[11]
     return RunRecord(
         run_id=row[0],
         name=row[1],
@@ -528,6 +548,7 @@ def _run_from_row(row: tuple[Any, ...]) -> RunRecord:
         finished_at=None if finished_at is None else datetime.fromisoformat(finished_at),
         seal=row[9],
         imported_at=None if imported_at is None else datetime.fromisoformat(imported_at),
+        experiment=None if experiment_json is None else ExperimentMarker.from_json(experiment_json),
     )
 
 

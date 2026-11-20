@@ -17,7 +17,7 @@ from cuaderna.storage._sqlite import SqliteStorage
 from .storage.contract import attempt_for, claimed_run
 
 STATEMENTS_UP_TO_VERSION_3 = 12
-STATEMENTS_UP_TO_VERSION_5 = len(pending_statements(0)) - 2
+STATEMENTS_UP_TO_VERSION_5 = len(pending_statements(0)) - 4
 HEX_64 = re.compile(r"[0-9a-f]{64}")
 
 
@@ -255,7 +255,7 @@ async def test_a_version_5_journal_migrates_and_new_runs_are_sealed(journal_path
 
     assert HEX_64.fullmatch(head)
     connection = sqlite3.connect(journal_path)
-    assert connection.execute("PRAGMA user_version").fetchone() == (7,)
+    assert connection.execute("PRAGMA user_version").fetchone() == (8,)
     assert connection.execute("SELECT seal FROM runs").fetchone() != (None,)
     connection.close()
 

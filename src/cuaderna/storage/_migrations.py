@@ -136,6 +136,16 @@ _MIGRATIONS: tuple[tuple[str, ...], ...] = (
     ),
     ("ALTER TABLE runs ADD COLUMN seal TEXT",),
     ("ALTER TABLE runs ADD COLUMN imported_at TEXT",),
+    (
+        "ALTER TABLE runs ADD COLUMN experiment_json TEXT",
+        """
+        CREATE TRIGGER runs_experiment_is_final BEFORE UPDATE OF experiment_json ON runs
+        WHEN OLD.experiment_json IS NOT NEW.experiment_json
+        BEGIN
+            SELECT RAISE(ABORT, 'runs.experiment_json is final once the run exists');
+        END
+        """,
+    ),
 )
 
 LATEST_VERSION = len(_MIGRATIONS)

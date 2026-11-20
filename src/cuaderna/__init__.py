@@ -35,7 +35,14 @@ from ._faults import Fault, FaultPlan
 from ._library import new_id, now, random
 from ._policy import Decision, Policy
 from ._prices import PriceTable
-from ._records import ApprovalRequest, AttemptStatus, RunRecord, RunStatus, StepAttempt
+from ._records import (
+    ApprovalRequest,
+    AttemptStatus,
+    ExperimentMarker,
+    RunRecord,
+    RunStatus,
+    StepAttempt,
+)
 from ._run import run
 from ._step import annotate, idempotency_key, step
 
@@ -51,6 +58,7 @@ __all__ = [
     "CuadernaError",
     "Decision",
     "Engine",
+    "ExperimentMarker",
     "Fault",
     "FaultPlan",
     "FaultPlanError",
