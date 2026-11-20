@@ -18,14 +18,14 @@ from pydantic import BaseModel, JsonValue
 
 import cuaderna
 
-_SAMPLE = Path(__file__).parent / "sample"
+SAMPLE = Path(__file__).parent / "sample"
 _MODEL_URL = "http://localhost:11434/api/chat"
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 _EDIT_TOOL = "write_file"
-_PRICES = Path(__file__).parent / "prices.json"
+PRICES = Path(__file__).parent / "prices.json"
 _POLICY = Path(__file__).parent / "policy.json"
-_LEASE_SECONDS = 5.0
-_API_KEY_NAME = "ANTHROPIC_API_KEY"
+LEASE_SECONDS = 5.0
+API_KEY_NAME = "ANTHROPIC_API_KEY"
 _API_KEY_SHAPE = re.compile(r"[\x21-\x7e]+")
 _TEST_ENVIRONMENT_NAMES = frozenset(
     {
@@ -47,6 +47,7 @@ _TEST_ENVIRONMENT_NAMES = frozenset(
     }
 )
 _PUBLISHED_WORKDIR = "/tmp/fix-tests"
+_ELAPSED_TIME = re.compile(r" in \d+(?:\.\d+)?s(?: \(\d+:\d{2}:\d{2}\))?$", re.MULTILINE)
 _INSTRUCTIONS = (
     "You fix failing Python tests. You get the source files and the pytest output. "
     "Answer with the path of one source file and its complete corrected content. "
@@ -77,11 +78,11 @@ def _test_environment(environment: Mapping[str, str]) -> dict[str, str]:
     }
 
 
-def _read_api_key(environment: Mapping[str, str]) -> str:
-    key = environment.get(_API_KEY_NAME, "").strip()
+def read_api_key(environment: Mapping[str, str]) -> str:
+    key = environment.get(API_KEY_NAME, "").strip()
     if _API_KEY_SHAPE.fullmatch(key) is None:
         raise SystemExit(
-            f"{_API_KEY_NAME} must be set, and hold only printable characters without spaces"
+            f"{API_KEY_NAME} must be set, and hold only printable characters without spaces"
         )
     return key
 
@@ -99,7 +100,9 @@ def run_tests(repo: str) -> TestReport:
         timeout=120,
         check=False,
     )
-    return TestReport(passed=completed.returncode == 0, output=completed.stdout[-4000:])
+    return TestReport(
+        passed=completed.returncode == 0, output=_ELAPSED_TIME.sub("", completed.stdout)[-4000:]
+    )
 
 
 @cuaderna.step
@@ -155,7 +158,7 @@ def _ask_anthropic(model: str, instructions: str, prompt: str) -> FileEdit:
     }
     headers = {
         "anthropic-version": "2023-06-01",
-        "x-api-key": os.environ[_API_KEY_NAME],
+        "x-api-key": os.environ[API_KEY_NAME],
     }
     reply = _post_json(_ANTHROPIC_URL, headers, body)
     cuaderna.annotate(cuaderna.usage.from_anthropic(reply, requested_model=model))
@@ -219,14 +222,14 @@ class _Options:
 
 async def _main(options: _Options) -> None:
     if options.provider == "anthropic":
-        os.environ[_API_KEY_NAME] = _read_api_key(os.environ)
+        os.environ[API_KEY_NAME] = read_api_key(os.environ)
     repo = options.workdir / "repo"
     if not repo.exists():
-        shutil.copytree(_SAMPLE, repo)
+        shutil.copytree(SAMPLE, repo)
     engine = cuaderna.Engine(
         options.workdir / "journal.db",
-        lease_seconds=_LEASE_SECONDS,
-        prices=cuaderna.PriceTable.load(_PRICES),
+        lease_seconds=LEASE_SECONDS,
+        prices=cuaderna.PriceTable.load(PRICES),
         actor=options.actor,
     )
     run = fix_tests if options.budget is None else fix_tests.with_budget(options.budget)
@@ -240,7 +243,7 @@ async def _main(options: _Options) -> None:
         )
         if options.export is not None:
             await engine.export_run(
-                options.run_id, options.export, redact=partial(_hide_local_paths, options.workdir)
+                options.run_id, options.export, redact=partial(hide_local_paths, options.workdir)
             )
         cost = await engine.cost(options.run_id)
     except (cuaderna.BudgetExceededError, cuaderna.CostUnknownError) as error:
@@ -272,7 +275,7 @@ async def _answer_pending(engine: cuaderna.Engine, options: _Options) -> None:
             await engine.reject(request, by=options.approver)
 
 
-def _hide_local_paths(workdir: Path, _field: str, value: JsonValue) -> JsonValue:
+def hide_local_paths(workdir: Path, _field: str, value: JsonValue) -> JsonValue:
     text = json.dumps(value)
     replacements = (
         (workdir / "repo", f"{_PUBLISHED_WORKDIR}/repo"),

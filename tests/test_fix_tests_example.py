@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -66,6 +67,19 @@ async def test_the_tests_run_without_the_api_key_in_their_environment(
     assert report.passed, report.output
 
 
+async def test_the_tests_report_the_same_output_for_the_same_state(
+    engine: Engine, tmp_path: Path
+) -> None:
+    reports: list[agent.TestReport] = []
+    for name in ("first", "second"):
+        repo = tmp_path / name / "repo"
+        shutil.copytree(agent.SAMPLE, repo)
+        reports.append(await engine.execute(name, _run_the_tests, str(repo)))
+
+    assert reports[0] == reports[1]
+    assert "passed in" not in reports[0].output
+
+
 def test_the_test_environment_keeps_only_the_listed_names() -> None:
     environment = agent._test_environment(  # pyright: ignore[reportPrivateUsage]
         {
@@ -128,13 +142,13 @@ def test_a_new_file_is_not_allowed() -> None:
 )
 def test_a_key_that_is_not_a_header_value_stops_before_any_run(value: str) -> None:
     with pytest.raises(SystemExit) as stopped:
-        agent._read_api_key({"ANTHROPIC_API_KEY": value})  # pyright: ignore[reportPrivateUsage]
+        agent.read_api_key({"ANTHROPIC_API_KEY": value})
 
     assert value.strip() == "" or value.strip() not in str(stopped.value)
 
 
 def test_a_trailing_newline_is_stripped_from_the_key() -> None:
-    key = agent._read_api_key({"ANTHROPIC_API_KEY": _KEY + "\n"})  # pyright: ignore[reportPrivateUsage]
+    key = agent.read_api_key({"ANTHROPIC_API_KEY": _KEY + "\n"})
 
     assert key == _KEY
 
