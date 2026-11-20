@@ -8,6 +8,7 @@ from ._errors import (
     BudgetExceededError,
     CostUnknownError,
     CuadernaError,
+    FaultPlanError,
     InvalidDefinitionError,
     JournalBusyError,
     JournalConflictError,
@@ -30,6 +31,7 @@ from ._errors import (
     StepMismatchError,
     TerminalError,
 )
+from ._faults import Fault, FaultPlan
 from ._library import new_id, now, random
 from ._policy import Decision, Policy
 from ._prices import PriceTable
@@ -49,6 +51,9 @@ __all__ = [
     "CuadernaError",
     "Decision",
     "Engine",
+    "Fault",
+    "FaultPlan",
+    "FaultPlanError",
     "InvalidDefinitionError",
     "JournalBusyError",
     "JournalConflictError",
