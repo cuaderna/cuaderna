@@ -29,7 +29,11 @@ const scrubberPosition = document.querySelector("#scrubber-position");
 const picker = document.querySelector("#run-picker");
 const pickerLabel = document.querySelector("#run-picker-label");
 const experimentNote = document.querySelector("#experiment-note");
+const summary = document.querySelector("#summary");
+const summaryFacts = document.querySelector("#summary-facts");
+const handovers = document.querySelector("#handovers");
 const stackedLayout = window.matchMedia("(max-width: 60rem)");
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 let rows = [];
 let latestRequest = 0;
 
@@ -55,6 +59,10 @@ function cell(className, text) {
   const node = element("span", className);
   node.append(isolated(text));
   return node;
+}
+
+function capitalized(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function isModelCall(attempt) {
@@ -241,10 +249,14 @@ function authorizationFacts(recorded) {
   if (recorded.effect === "ask") {
     policySaid = "ask a person";
   }
+  let reasonLabel = "why";
+  if (recorded.decision === "allow" && recorded.reason === "rule") {
+    reasonLabel = "allowed by";
+  }
   const facts = [
     ["decision", recorded.decision],
     ["policy said", policySaid],
-    ["why", authorizationReasonText(recorded)],
+    [reasonLabel, authorizationReasonText(recorded)],
     ["policy", authorizationPolicyText(recorded)],
     ["actor", textOrNull(recorded.actor)],
     ...authorizationApprovalFacts(recorded),
@@ -325,11 +337,19 @@ function valueNode(value, depth = 0) {
   return factsNode(entries.map(([name, inner]) => [name, valueNode(inner, depth + 1)]));
 }
 
-function factsNode(facts) {
-  const list = element("dl");
+function factsNode(facts, isHumanLabeled = false) {
+  let className = "";
+  if (isHumanLabeled) {
+    className = "facts";
+  }
+  const list = element("dl", className);
   for (const [name, content] of facts) {
     const term = element("dt");
-    term.append(isolated(name));
+    if (isHumanLabeled) {
+      term.textContent = capitalized(name);
+    } else {
+      term.append(isolated(name));
+    }
     const description = element("dd");
     if (typeof content === "string") {
       description.append(isolated(content));
@@ -339,6 +359,19 @@ function factsNode(facts) {
     list.append(term, description);
   }
   return list;
+}
+
+function readableFacts(facts) {
+  return factsNode(facts, true);
+}
+
+function timeNode(time) {
+  const node = element("span");
+  if (typeof time === "string") {
+    node.title = time;
+  }
+  node.append(isolated(labels.timeText(time)));
+  return node;
 }
 
 function sectionNodes(title, value) {
@@ -362,13 +395,20 @@ function detailTitle(...parts) {
   return title;
 }
 
+function runFinishedFact(run) {
+  if (run.finished_at === null || run.finished_at === undefined) {
+    return "not finished";
+  }
+  return timeNode(run.finished_at);
+}
+
 function showRunDetail(run, attemptCount, cost) {
   const facts = [
     ["function", run.name],
     ["status", run.status],
     ["code version", run.code_version ?? "not recorded"],
-    ["created", run.created_at],
-    ["finished", run.finished_at ?? "not finished"],
+    ["created", timeNode(run.created_at)],
+    ["finished", runFinishedFact(run)],
     ["attempts recorded", String(attemptCount)],
   ];
   if (cost !== null) {
@@ -381,50 +421,55 @@ function showRunDetail(run, attemptCount, cost) {
     }
   }
   detail.replaceChildren(
-    detailTitle("Run ", isolated(run.run_id)),
-    factsNode(facts),
+    detailTitle("Whole run ", isolated(run.run_id)),
+    readableFacts(facts),
     ...sectionNodes("Input", run.input),
     ...outcomeNodes(run.status === "completed", run.status === "failed", run.output, run.error),
   );
 }
 
-function showAttemptDetail(attempt) {
+function processText(process) {
+  if (process.leaseToken === null) {
+    return `process ${process.number}, lease token not recorded`;
+  }
+  return `process ${process.number}, lease token ${process.leaseToken}`;
+}
+
+function showAttemptDetail(attempt, process) {
   const annotations = attempt.annotations ?? {};
   const modelFacts = MODEL_FACTS.filter(([, key]) => key in annotations).map(([label, key]) => [
     label,
     String(annotations[key]),
   ]);
-  const nodes = [
-    detailTitle(isolated(attempt.step_key)),
-    factsNode([
-      ["function", attempt.name],
-      ["attempt", String(attempt.attempt)],
-      ["status", attempt.status],
-      ["started", attempt.started_at],
-      ["finished", attempt.finished_at],
-      ["duration", labels.durationText(attempt.started_at, attempt.finished_at)],
-      ["lease token", String(attempt.lease_token ?? "not recorded")],
-      ["chain hash", labels.chainText(attempt.chain_hash)],
-    ]),
-  ];
+  const facts = [
+    ["function", attempt.name],
+    ["status", attempt.status],
+    ["retry", labels.retryText(attempt.attempt)],
+    ["started", timeNode(attempt.started_at)],
+    ["finished", timeNode(attempt.finished_at)],
+    ["took", labels.durationText(attempt.started_at, attempt.finished_at)],
+    ["written by", processText(process)],
+    ["chain hash", labels.chainText(attempt.chain_hash)],
+  ].filter(([, value]) => value !== null);
+  const nodes = [detailTitle(isolated(attempt.step_key)), readableFacts(facts)];
   if (modelFacts.length > 0) {
-    nodes.push(element("h3", "", "Model call"), factsNode(modelFacts));
+    nodes.push(element("h3", "", "Model call"), readableFacts(modelFacts));
   }
   const cost = attemptCost(attempt);
   if (cost !== null) {
-    nodes.push(element("h3", "", "Cost"), factsNode(costFacts(cost)));
+    nodes.push(element("h3", "", "Cost"), readableFacts(costFacts(cost)));
   }
   nodes.push(
-    element("h3", "", "Authorization"),
-    factsNode(authorizationFacts(labels.recordedAuthorization(attempt))),
+    element("h3", "", "Permission"),
+    readableFacts(authorizationFacts(labels.recordedAuthorization(attempt))),
   );
   const fault = labels.recordedFault(attempt);
   if (fault !== null) {
-    nodes.push(element("h3", "", "Injected fault"), factsNode(faultFacts(fault)));
+    nodes.push(element("h3", "", "Injected fault"), readableFacts(faultFacts(fault)));
   }
   const reuse = labels.recordedReuse(attempt);
   if (reuse !== null) {
-    nodes.push(element("h3", "", "From the recording"), factsNode(reuseFacts(reuse)));
+    nodes.push(element("h3", "", "From the recording"), readableFacts(reuseFacts(reuse)));
   }
   nodes.push(
     ...sectionNodes("Arguments", attempt.args),
@@ -436,9 +481,38 @@ function showAttemptDetail(attempt) {
     ),
   );
   if (attempt.annotations) {
-    nodes.push(...sectionNodes("Annotations", attempt.annotations));
+    nodes.push(...sectionNodes("Everything else recorded", attempt.annotations));
   }
   detail.replaceChildren(...nodes);
+}
+
+function scrollBehavior() {
+  if (reducedMotion.matches) {
+    return "auto";
+  }
+  return "smooth";
+}
+
+function bringDetailIntoView() {
+  const heading = detail.querySelector("#detail-title");
+  detail.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
+  if (heading === null) {
+    detail.focus({ preventScroll: true });
+    return;
+  }
+  heading.tabIndex = -1;
+  heading.focus({ preventScroll: true });
+}
+
+function backToStepsButton(position) {
+  const button = element("button", "back-to-steps", "Back to the steps");
+  button.type = "button";
+  button.addEventListener("click", () => {
+    const { button: row } = rows[position];
+    row.scrollIntoView({ behavior: scrollBehavior(), block: "center" });
+    row.focus({ preventScroll: true });
+  });
+  return button;
 }
 
 function rowButton(cells, status, show) {
@@ -450,7 +524,7 @@ function rowButton(cells, status, show) {
   button.addEventListener("click", () => {
     selectRow(position);
     if (stackedLayout.matches) {
-      detail.focus();
+      bringDetailIntoView();
     }
   });
   return button;
@@ -460,7 +534,7 @@ function positionText(position) {
   if (position === 0) {
     return "the whole run";
   }
-  return `attempt ${position} of ${rows.length - 1}`;
+  return `step ${position} of ${rows.length - 1}`;
 }
 
 function selectRow(position) {
@@ -477,77 +551,75 @@ function selectRow(position) {
   } catch {
     detail.replaceChildren(element("p", "", ATTEMPT_CANNOT_BE_SHOWN));
   }
+  detail.prepend(backToStepsButton(position));
   scrubber.value = String(position);
   scrubberPosition.textContent = positionText(position);
 }
 
-function attemptRow(attempt, longestSeconds) {
+function metaNode(parts, marks) {
+  const meta = element("span", "meta");
+  for (const text of parts.filter((part) => part !== "")) {
+    meta.append(cell("", text));
+  }
+  for (const text of marks) {
+    meta.append(cell("mark", text));
+  }
+  return meta;
+}
+
+function attemptRow(attempt, longestSeconds, process) {
   const seconds = labels.validSeconds(attempt.started_at, attempt.finished_at) ?? 0;
   const bar = element("span", "bar");
+  bar.setAttribute("aria-hidden", "true");
   bar.style.setProperty("--share", String(seconds / longestSeconds));
   const button = rowButton(
     [
       cell("key", attempt.step_key),
-      cell("", `attempt ${attempt.attempt}`),
-      cell("", labels.durationText(attempt.started_at, attempt.finished_at)),
-      cell("", attemptCostText(attemptCost(attempt))),
-      cell("status", [rowStatusText(attempt), ...labels.attemptMarks(attempt)].join(", ")),
+      cell("status", rowStatusText(attempt)),
+      metaNode(
+        [
+          labels.durationText(attempt.started_at, attempt.finished_at),
+          attemptCostText(attemptCost(attempt)),
+          labels.retryText(attempt.attempt) ?? "",
+        ],
+        labels.attemptMarks(attempt),
+      ),
       bar,
     ],
     attempt.status,
-    () => showAttemptDetail(attempt),
+    () => showAttemptDetail(attempt, process),
   );
   const item = element("li");
   item.append(button);
   return item;
 }
 
-function takeoverNote(previousGroup, group) {
-  const stopped = previousGroup.rows.at(-1).attempt.finished_at;
-  const continued = group.rows[0].attempt.started_at;
-  const gap = labels.durationText(stopped, continued);
-  let timing = `started its first step ${gap} later`;
-  if (gap === "invalid time") {
-    timing = "started at a recorded time that is invalid";
-  }
-  return element(
-    "li",
-    "takeover",
-    `The process holding the run stopped here or gave the run back. Another one continued it and ${timing}. If a step was executing when the first one stopped, it left no record and starts again below.`,
-  );
+function gapBetween(previousGroup, group) {
+  const lastAttempt = previousGroup.rows.at(-1).attempt;
+  return labels.durationText(lastAttempt.finished_at, group.rows[0].attempt.started_at);
 }
 
-function groupItem(group, position, longestSeconds) {
-  const item = element("li");
-  const title = element("h3", "", `Process ${position}`);
-  const small = element("small", "", " ");
-  if (group.leaseToken === null) {
-    small.append("lease not recorded");
-  } else {
-    small.append("lease token ", isolated(String(group.leaseToken)));
-  }
-  small.append(`, ${group.rows.length} attempts`);
-  title.append(small);
-  const rows = element("ol");
-  rows.append(...group.rows.map(({ attempt }) => attemptRow(attempt, longestSeconds)));
-  item.append(title, rows);
+function handoverSentence(previousGroup, group, processNumber) {
+  const stoppedAfter = previousGroup.rows.at(-1).attempt.step_key;
+  return labels.handoverText(processNumber, stoppedAfter, gapBetween(previousGroup, group));
+}
+
+function handoverItem(sentence) {
+  const item = element("li", "handover");
+  item.append(isolated(sentence));
   return item;
 }
 
-function statusNodes(run, attemptCount, cost) {
-  const nodes = [
-    "Showing run ",
-    isolated(run.run_id),
-    `: ${attemptCount} attempts, `,
-    isolated(labels.statusLabel(run.status)),
-  ];
-  if (cost !== null) {
-    nodes.push(`, ${runCostText(cost)}`);
-    if (cost.disagreeingCount > 0) {
-      nodes.push(`, ${cost.disagreeingCount} with parts that do not add up`);
-    }
-  }
-  return [...nodes, "."];
+function groupItem(group, number, longestSeconds) {
+  const item = element("li");
+  const title = element("h3", "", `Process ${number}`);
+  const attempts = group.rows.map(({ attempt }) => attempt);
+  title.append(element("small", "", ` ${labels.stepsText(attempts)}`));
+  const process = { number, leaseToken: group.leaseToken };
+  const rowList = element("ol");
+  rowList.append(...attempts.map((attempt) => attemptRow(attempt, longestSeconds, process)));
+  item.append(title, rowList);
+  return item;
 }
 
 function showExperimentNote(line) {
@@ -560,38 +632,77 @@ function showExperimentNote(line) {
   experimentNote.hidden = false;
 }
 
+function totalCostText(cost) {
+  if (cost === null) {
+    return "none recorded";
+  }
+  if (cost.disagreeingCount > 0) {
+    return `${runCostText(cost)}, ${cost.disagreeingCount} with parts that do not add up`;
+  }
+  return runCostText(cost);
+}
+
+function processCountText(groups) {
+  if (groups.length === 1) {
+    return "1 process";
+  }
+  return `${groups.length} processes`;
+}
+
+function showSummary(run, attempts, groups, cost) {
+  const facts = [
+    ["outcome", labels.outcomeText(run)],
+    ["steps", labels.stepsText(attempts)],
+    ["written by", processCountText(groups)],
+    ["total time", labels.durationText(run.created_at, run.finished_at ?? "")],
+    ["total cost", totalCostText(cost)],
+  ];
+  summaryFacts.replaceChildren(...readableFacts(facts).children);
+  const sentences = groups
+    .slice(1)
+    .map((group, index) => handoverSentence(groups[index], group, index + 2));
+  if (sentences.length > 0) {
+    sentences[sentences.length - 1] += ` ${labels.UNRECORDED_STEP_SENTENCE}`;
+  }
+  handovers.replaceChildren(...sentences.map(handoverItem));
+  summary.hidden = false;
+}
+
 function showRunFile(file) {
   const { run, attempts } = file;
   const experimentLine = labels.experimentLine(labels.experimentFacts(file));
+  const groups = leaseGroups(attempts);
+  const cost = runCost(attempts);
   const previousRows = rows;
   rows = [];
   try {
-    buildTimeline(run, attempts);
+    buildTimeline(run, attempts, groups, cost);
   } catch (error) {
     rows = previousRows;
     throw error;
   }
   scrubber.max = String(attempts.length);
   selectRow(0);
+  showSummary(run, attempts, groups, cost);
   showExperimentNote(experimentLine);
   statusLine.classList.remove("problem");
-  statusLine.replaceChildren(...statusNodes(run, attempts.length, runCost(attempts)));
+  statusLine.replaceChildren("Showing run ", isolated(run.run_id), ".");
 }
 
-function buildTimeline(run, attempts) {
+function buildTimeline(run, attempts, groups, cost) {
   const longestSeconds = attempts.reduce(
     (longest, attempt) =>
       Math.max(longest, labels.validSeconds(attempt.started_at, attempt.finished_at) ?? 0),
     0.001,
   );
-  const cost = runCost(attempts);
   const runButton = rowButton(
     [
       cell("key", run.name),
-      cell("", "the run"),
-      cell("", labels.durationText(run.created_at, run.finished_at ?? "")),
-      cell("", runCostText(cost)),
       cell("status", labels.statusLabel(run.status)),
+      metaNode(
+        ["the whole run", labels.durationText(run.created_at, run.finished_at ?? ""), runCostText(cost)],
+        [],
+      ),
     ],
     run.status,
     () => showRunDetail(run, attempts.length, cost),
@@ -599,15 +710,15 @@ function buildTimeline(run, attempts) {
   const runItem = element("li");
   runItem.append(runButton);
   const items = [runItem];
-  const groups = leaseGroups(attempts);
   groups.forEach((group, position) => {
     if (position > 0) {
-      items.push(takeoverNote(groups[position - 1], group));
+      const gap = gapBetween(groups[position - 1], group);
+      items.push(handoverItem(labels.takeoverText(position + 1, gap)));
     }
     items.push(groupItem(group, position + 1, longestSeconds));
   });
   if (attempts.length === 0) {
-    items.push(element("li", "takeover", "This run has no recorded attempts."));
+    items.push(element("li", "handover", "This run has no recorded attempts."));
   }
   timeline.replaceChildren(...items);
 }
@@ -651,12 +762,18 @@ async function fetchedText(url, subject) {
 }
 
 function fillPicker(choices) {
-  const options = choices.map(({ file, label }) => {
+  const groups = new Map();
+  for (const { file, group, label } of choices) {
     const option = element("option", "", label);
     option.value = file;
-    return option;
-  });
-  picker.replaceChildren(...options);
+    if (!groups.has(group)) {
+      const optgroup = element("optgroup");
+      optgroup.label = group;
+      groups.set(group, optgroup);
+    }
+    groups.get(group).append(option);
+  }
+  picker.replaceChildren(...groups.values());
   pickerLabel.hidden = false;
 }
 

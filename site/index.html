@@ -22,32 +22,43 @@
     <header>
       <h1>cuaderna</h1>
       <p>
-        Every step an agent executes is written to a journal. This page reads one run exported from
-        that journal and shows it as it was recorded. Nothing is executed here.
+        An agent works in steps. cuaderna writes every step to a journal, so a run that crashes
+        continues where it stopped, and afterwards you can see what each step did and what it cost.
+      </p>
+      <p class="source">
+        The runs listed here come from
+        <a href="https://github.com/cuaderna/cuaderna/tree/main/examples/fix_tests">examples/fix_tests</a>,
+        an agent that asks a model to fix failing tests.
       </p>
     </header>
-    <p id="status" role="status">Loading the sample run.</p>
-    <p id="experiment-note" dir="auto" hidden></p>
-    <p id="chain-note">This page shows what the file says and does not check its hash chain.</p>
     <form id="controls">
       <label id="run-picker-label" hidden>
-        Choose a run
+        <span class="control-title">Run to look at</span>
         <select id="run-picker"></select>
       </label>
-      <label>
-        Open a run file
+      <label id="file-button" class="file-button">
+        <span>Open your own run file</span>
         <input id="file" type="file" accept=".json,application/json">
       </label>
-      <p>Or drop one on the page. It is read in your browser and never uploaded.</p>
+      <p class="privacy">It is read in your browser and never uploaded. You can also drop a file on the page.</p>
     </form>
-    <div id="stepper">
-      <label for="scrubber">Step through</label>
-      <input id="scrubber" type="range" min="0" max="0" value="0">
-      <output id="scrubber-position" for="scrubber"></output>
-    </div>
+    <p id="status" role="status">Loading the sample run.</p>
+    <section id="summary" aria-labelledby="summary-title" hidden>
+      <h2 id="summary-title">What happened</h2>
+      <p id="experiment-note" dir="auto" hidden></p>
+      <dl id="summary-facts" class="facts"></dl>
+      <ul id="handovers"></ul>
+      <p id="chain-note">This page shows what the file says and does not check its hash chain.</p>
+    </section>
     <main>
       <section aria-labelledby="timeline-title">
-        <h2 id="timeline-title">Recorded attempts</h2>
+        <h2 id="timeline-title">Step by step</h2>
+        <div id="stepper">
+          <label for="scrubber">Replay step by step</label>
+          <input id="scrubber" type="range" min="0" max="0" value="0">
+          <output id="scrubber-position" for="scrubber"></output>
+        </div>
+        <p id="legend">The line under each step shows how long it took, compared with the slowest step.</p>
         <ol id="timeline"></ol>
       </section>
       <section id="detail" aria-labelledby="detail-title" tabindex="-1"></section>
