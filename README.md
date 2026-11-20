@@ -61,6 +61,7 @@ Kill it while it works and run it again: it continues from the last step it reco
 - [Writing steps and runs](docs/usage.md): steps, retries, resume, replay, exporting a run as a test case, and what the journal holds.
 - [Cost and budgets](docs/cost.md): the price table, the cost of each model call, stopping a run at a budget, and what the same run would have cost on another model.
 - [Permissions and audit](docs/permissions.md): the policy file, denials, asking a person, the audit entries and checking the journal with `verify`.
+- [Fault injection](docs/faults.md): the fault plan file, rerunning a recorded run with one fault, and reading what the agent did.
 - [The run page](docs/run-page.md): looking at a recorded run in the browser.
 - [Security](docs/security.md): what cuaderna protects and what it does not.
 
