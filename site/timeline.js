@@ -1,4 +1,3 @@
-const RUN_FILE_FORMAT = "cuaderna.run/1";
 const SAMPLE_URL = "sample-run.json";
 const MODEL_FACTS = [
   ["requested model", "gen_ai.request.model"],
@@ -11,6 +10,12 @@ const ZERO_AMOUNT_PATTERN = /^0(\.0+)?$/;
 const MISSING_PRICE_TABLE_REASON = "the model call was recorded without a price table";
 const UNREADABLE_COST_REASON = "the recorded cost cannot be read";
 const UNREADABLE_AUTHORIZATION = "unreadable";
+const NESTED_TOO_DEEPLY = "nested too deeply to show";
+const ATTEMPT_CANNOT_BE_SHOWN = "This attempt cannot be shown.";
+const FILE_CANNOT_BE_SHOWN = "This file could not be shown.";
+const FILE_CANNOT_BE_READ = "This file could not be read.";
+const FILE_IS_NOT_TEXT = "This file is not UTF-8 text.";
+const SAMPLE_CANNOT_BE_LOADED = "The sample run could not be loaded.";
 
 const labels = globalThis.cuadernaLabels;
 const statusLine = document.querySelector("#status");
@@ -21,6 +26,7 @@ const scrubber = document.querySelector("#scrubber");
 const scrubberPosition = document.querySelector("#scrubber-position");
 const stackedLayout = window.matchMedia("(max-width: 60rem)");
 let rows = [];
+let latestRequest = 0;
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -44,36 +50,6 @@ function cell(className, text) {
   const node = element("span", className);
   node.append(isolated(text));
   return node;
-}
-
-function hasTextFields(record, names) {
-  return (
-    record !== null &&
-    typeof record === "object" &&
-    names.every((name) => typeof record[name] === "string")
-  );
-}
-
-function parseRunFile(text) {
-  let file;
-  try {
-    file = JSON.parse(text);
-  } catch {
-    throw new Error("This file is not JSON.");
-  }
-  const isRunFile =
-    file !== null &&
-    typeof file === "object" &&
-    file.format === RUN_FILE_FORMAT &&
-    hasTextFields(file.run, ["run_id", "name", "status", "created_at"]) &&
-    Array.isArray(file.attempts) &&
-    file.attempts.every((attempt) =>
-      hasTextFields(attempt, ["step_key", "name", "status", "started_at", "finished_at"]),
-    );
-  if (!isRunFile) {
-    throw new Error(`This is not a run file in the ${RUN_FILE_FORMAT} format.`);
-  }
-  return file;
 }
 
 function isModelCall(attempt) {
@@ -294,7 +270,7 @@ function leaseGroups(attempts) {
   return groups;
 }
 
-function valueNode(value) {
+function valueNode(value, depth = 0) {
   if (typeof value === "string") {
     const pre = element("pre");
     pre.append(isolated(value));
@@ -305,13 +281,16 @@ function valueNode(value) {
     code.append(isolated(JSON.stringify(value)));
     return code;
   }
+  if (depth >= labels.MAX_VALUE_DEPTH) {
+    return element("em", "", NESTED_TOO_DEEPLY);
+  }
   const entries = Object.entries(value);
   if (entries.length === 0) {
     const code = element("code");
     code.append(isolated(JSON.stringify(value)));
     return code;
   }
-  return factsNode(entries.map(([name, inner]) => [name, valueNode(inner)]));
+  return factsNode(entries.map(([name, inner]) => [name, valueNode(inner, depth + 1)]));
 }
 
 function factsNode(facts) {
@@ -453,7 +432,11 @@ function selectRow(position) {
       button.removeAttribute("aria-current");
     }
   });
-  rows[position].show();
+  try {
+    rows[position].show();
+  } catch {
+    detail.replaceChildren(element("p", "", ATTEMPT_CANNOT_BE_SHOWN));
+  }
   scrubber.value = String(position);
   scrubberPosition.textContent = positionText(position);
 }
@@ -529,11 +512,26 @@ function statusNodes(run, attemptCount, cost) {
 
 function showRunFile(file) {
   const { run, attempts } = file;
+  const previousRows = rows;
   rows = [];
-  const durations = attempts.map(
-    (attempt) => labels.validSeconds(attempt.started_at, attempt.finished_at) ?? 0,
+  try {
+    buildTimeline(run, attempts);
+  } catch (error) {
+    rows = previousRows;
+    throw error;
+  }
+  scrubber.max = String(attempts.length);
+  selectRow(0);
+  statusLine.classList.remove("problem");
+  statusLine.replaceChildren(...statusNodes(run, attempts.length, runCost(attempts)));
+}
+
+function buildTimeline(run, attempts) {
+  const longestSeconds = attempts.reduce(
+    (longest, attempt) =>
+      Math.max(longest, labels.validSeconds(attempt.started_at, attempt.finished_at) ?? 0),
+    0.001,
   );
-  const longestSeconds = Math.max(...durations, 0.001);
   const cost = runCost(attempts);
   const runButton = rowButton(
     [
@@ -560,10 +558,6 @@ function showRunFile(file) {
     items.push(element("li", "takeover", "This run has no recorded attempts."));
   }
   timeline.replaceChildren(...items);
-  scrubber.max = String(attempts.length);
-  selectRow(0);
-  statusLine.classList.remove("problem");
-  statusLine.replaceChildren(...statusNodes(run, attempts.length, cost));
 }
 
 function showProblem(message) {
@@ -572,31 +566,71 @@ function showProblem(message) {
 }
 
 function showRunText(text) {
+  let file;
   try {
-    showRunFile(parseRunFile(text));
+    file = labels.parseRunFile(text);
   } catch (error) {
     showProblem(error.message);
+    return;
+  }
+  try {
+    showRunFile(file);
+  } catch {
+    showProblem(FILE_CANNOT_BE_SHOWN);
   }
 }
 
-async function loadSample() {
+async function sampleText() {
   let response;
   try {
     response = await fetch(SAMPLE_URL);
   } catch {
-    showProblem("The sample run could not be loaded.");
-    return;
+    throw new Error(SAMPLE_CANNOT_BE_LOADED);
   }
   if (!response.ok) {
-    showProblem(`The sample run could not be loaded (HTTP ${response.status}).`);
-    return;
+    throw new Error(`The sample run could not be loaded (HTTP ${response.status}).`);
   }
-  showRunText(await response.text());
+  return response.text();
 }
 
-async function openFile(file) {
+async function fileText(file) {
+  const sizeProblem = labels.fileSizeProblem(file.size);
+  if (sizeProblem !== null) {
+    throw new Error(sizeProblem);
+  }
+  let bytes;
+  try {
+    bytes = await file.arrayBuffer();
+  } catch {
+    throw new Error(FILE_CANNOT_BE_READ);
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error(FILE_IS_NOT_TEXT);
+  }
+}
+
+async function showLatest(readText) {
+  latestRequest += 1;
+  const request = latestRequest;
+  let text;
+  try {
+    text = await readText();
+  } catch (error) {
+    if (request === latestRequest) {
+      showProblem(error.message);
+    }
+    return;
+  }
+  if (request === latestRequest) {
+    showRunText(text);
+  }
+}
+
+function openFile(file) {
   if (file) {
-    showRunText(await file.text());
+    showLatest(() => fileText(file));
   }
 }
 
@@ -612,4 +646,4 @@ scrubber.addEventListener("input", () => {
   rows[position].button.scrollIntoView({ block: "nearest" });
 });
 
-loadSample();
+showLatest(sampleText);

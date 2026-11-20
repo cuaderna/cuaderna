@@ -18,7 +18,9 @@ The run was recorded under an earlier version of the policy in [examples/fix_tes
 
 `engine.reprice` puts the same tokens on `claude-opus-5-5` at 0.007096 USD, 40 times what the run cost. The budgets are not in the file: a budget belongs to the call to `execute`, not to the journal.
 
-Any other run file can be picked or dropped on the page. It is read in the browser and not uploaded.
+Any other run file can be picked or dropped on the page. It is read in the browser and not uploaded. A file larger than 16 MiB is refused before it is read, a value nested more than 64 levels deep is shown as "nested too deeply to show", and an amount of more than 30 digits before or after the point is shown as an unknown cost. A file that cannot be read, is not UTF-8 text, is not JSON or cannot be shown leaves the run that was open as it was and says why in the status line.
+
+The page carries a Content-Security-Policy and a no-referrer policy in meta tags, but `frame-ancestors` cannot be set from a meta tag, so whoever hosts the page should send the header `Content-Security-Policy: frame-ancestors 'none'`.
 
 The page shows what the file says and nothing more. A status it does not know is shown as an unknown status, a cost that is missing or cannot be read as "unknown", a time that is negative or out of range as "invalid time", and an authorization that is missing or unreadable as "not recorded" or "unreadable", never as "ok". Each attempt says whether it carries a chain hash, but the page does not check the chain: use `verify` for that. The labels are plain functions in [site/labels.js](../site/labels.js), tested with `node --test site/labels.test.js`.
 
