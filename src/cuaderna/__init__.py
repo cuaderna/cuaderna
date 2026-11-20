@@ -31,6 +31,7 @@ from ._errors import (
     StepFailedError,
     StepLimitExceededError,
     StepMismatchError,
+    StepTimeoutError,
     TerminalError,
 )
 from ._experiment import Experiment
@@ -95,6 +96,7 @@ __all__ = [
     "StepFailedError",
     "StepLimitExceededError",
     "StepMismatchError",
+    "StepTimeoutError",
     "TerminalError",
     "TrialCounts",
     "annotate",

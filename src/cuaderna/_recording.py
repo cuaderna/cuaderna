@@ -22,6 +22,7 @@ from ._errors import (
     PermissionDeniedError,
     StepLimitExceededError,
     StepMismatchError,
+    StepTimeoutError,
 )
 from ._policy import Decision, Policy
 from ._prices import PriceTable
@@ -117,9 +118,18 @@ class RecordingContext:
             token = active_step.set(running)
             try:
                 fresh = definition.codec.copy_arguments(as_recorded.args, as_recorded.kwargs)
-                result_json = definition.codec.dump_result(
-                    await definition.invoke(*fresh.args, **fresh.kwargs)
-                )
+                limit = asyncio.timeout(definition.timeout_seconds)
+                try:
+                    async with limit:
+                        returned = await definition.invoke(*fresh.args, **fresh.kwargs)
+                except TimeoutError as timed_out:
+                    if not limit.expired():
+                        raise
+                    raise StepTimeoutError(
+                        f"step {step_key!r} did not finish within "
+                        f"{definition.timeout_seconds} seconds"
+                    ) from timed_out
+                result_json = definition.codec.dump_result(returned)
             except Exception as error:
                 details = describe_error(error)
                 failed = _attempt(

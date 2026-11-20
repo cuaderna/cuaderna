@@ -45,6 +45,10 @@ class StepCallError(CuadernaError):
     pass
 
 
+class StepTimeoutError(CuadernaError, TimeoutError):
+    pass
+
+
 class StepFailedError(CuadernaError):
     def __init__(self, step_key: str, error_type: str, message: str, traceback: str) -> None:
         super().__init__(f"step {step_key!r} failed with {error_type}: {message}")
