@@ -26,8 +26,11 @@ def _fits_in_utc(moment: datetime) -> datetime:
 _Moment = Annotated[datetime, AfterValidator(_fits_in_utc)]
 
 
+_CLOSED = ConfigDict(extra="forbid")
+
+
 class _ExperimentSection(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = _CLOSED
 
     source_run_id: str
     reuse: list[str]
@@ -37,6 +40,8 @@ class _ExperimentSection(BaseModel):
 
 
 class _RunSection(BaseModel):
+    model_config = _CLOSED
+
     run_id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     input: JsonValue
@@ -51,6 +56,8 @@ class _RunSection(BaseModel):
 
 
 class _AttemptSection(BaseModel):
+    model_config = _CLOSED
+
     step_key: str = Field(min_length=1)
     name: str
     attempt: int = Field(ge=1, le=_SQLITE_MAX)
@@ -66,6 +73,8 @@ class _AttemptSection(BaseModel):
 
 
 class _RunFile(BaseModel):
+    model_config = _CLOSED
+
     format: Literal["cuaderna.run/1", "cuaderna.run/2"]
     run: _RunSection
     attempts: list[_AttemptSection]

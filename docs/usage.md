@@ -63,7 +63,7 @@ run_id = await other_engine.import_run("tests/cases/fix-123.json")
 assert await other_engine.replay(run_id, fix_tests) == 2
 ```
 
-`import_run` refuses a run id the journal already has unless `as_run_id=` gives it another one. An imported run is marked with `imported_at` and can be read and replayed, never executed, whether the file said it finished or not. A file larger than `max_bytes` (64 MiB by default) or not valid for this library is refused with `RunFileError`, and a refused import leaves nothing in the journal.
+`import_run` refuses a run id the journal already has unless `as_run_id=` gives it another one. An imported run is marked with `imported_at` and can be read and replayed, never executed, whether the file said it finished or not. A file larger than `max_bytes` (64 MiB by default) or not valid for this library is refused with `RunFileError`, and a refused import leaves nothing in the journal. A key the library does not know, anywhere in the file, makes it not valid: a file written by a newer version with something this one cannot read is refused instead of being imported without it.
 
 The journal file and its `-wal` file hold everything in plain text: prompts, tool output, error messages, whatever a step received or returned, including a secret if one was passed as an argument. Read secrets from the environment inside the step instead of passing them around. `pending()` and `audit()` return arguments because a reviewer needs them. The repr of a record and the messages of the run and step mismatch errors and of `RunFailedError` carry no recorded values; read them through `engine.run_record` and `engine.steps`. A `StepFailedError` still carries the text of the exception the step raised, so keep secrets out of exception messages.
 
