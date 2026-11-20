@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Maximiliano Zeballos" }]
 keywords = ["agents", "durable-execution", "replay", "llm"]
 classifiers = [
-    "Development Status :: 1 - Planning",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",

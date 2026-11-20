@@ -67,10 +67,10 @@ Kill it while it works and run it again: it continues from the last step it reco
 ## Install
 
 ```
-pip install git+https://github.com/cuaderna/cuaderna
+pip install cuaderna
 ```
 
-Requires Python 3.12 or newer. The project is in early development and the package on PyPI is still a placeholder, so for now it is installed from this repository.
+Requires Python 3.12 or newer. The project is in early development: the API can still change between releases.
 
 ## Contributing
 
