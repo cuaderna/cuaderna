@@ -80,15 +80,15 @@ class Engine:
                     f"run {run_id!r} was started as {record.name}({record.input_json}), "
                     f"not as {run.name}({input_json})"
                 )
+            if record.imported_at is not None:
+                raise RunNotAvailableError(
+                    f"run {run_id!r} was imported: it can be read and replayed, not executed"
+                )
             if record.status is RunStatus.FAILED:
                 raise RunFailedError(f"run {run_id!r} already failed: {record.error_json}")
             if record.output_json is not None:
+                verified_digest(run_id, record, await self._storage.load_attempts(run_id))
                 return run.codec.load_result(record.output_json)
-            if record.status is RunStatus.IMPORTED_UNFINISHED:
-                raise RunNotAvailableError(
-                    f"run {run_id!r} was imported unfinished: it can be read and replayed, "
-                    "not resumed"
-                )
             if record.code_version != run.code_version:
                 raise RunMismatchError(
                     f"run {run_id!r} was started with code version {record.code_version!r} "
@@ -162,7 +162,9 @@ class Engine:
         return repriced_cost(await self.steps(run_id), self._prices, provider=provider, model=model)
 
     async def audit(self, run_id: str) -> list[AuditEntry]:
-        return audit_entries(await self.steps(run_id))
+        record = await self.run_record(run_id)
+        attempts = await self._storage.load_attempts(run_id)
+        return audit_entries(attempts, record.imported_at is not None)
 
     async def verify(self, run_id: str) -> str:
         record = await self.run_record(run_id)
@@ -253,6 +255,7 @@ class Engine:
     ) -> R:
         try:
             attempts = await self._storage.load_attempts(lease.run_id)
+            verified_digest(lease.run_id, await self.run_record(lease.run_id), attempts)
             approvals = await self._storage.list_approvals(lease.run_id)
         except BaseException:
             await self._storage.release_run(lease)

@@ -1,5 +1,6 @@
 import json
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -71,9 +72,9 @@ async def test_an_exported_run_replays_in_another_journal(
 
     assert run_id == "run-1"
     assert await other_engine.replay(run_id, trip) == ["A", "Ñ"]
-    assert await other_engine.execute(run_id, trip, ["a", "ñ"]) == ["A", "Ñ"]
     assert world.entered == []
-    assert await other_engine.run_record(run_id) == await engine.run_record("run-1")
+    imported = await other_engine.run_record(run_id)
+    assert replace(imported, imported_at=None) == await engine.run_record("run-1")
     await other_engine.export_run(run_id, tmp_path / "again.json")
     assert (tmp_path / "again.json").read_bytes() == (tmp_path / "run.json").read_bytes()
 
@@ -129,7 +130,7 @@ async def test_an_unfinished_run_is_imported_for_reading_and_never_resumed(
 
     assert (await other_engine.run_record("run-1")).status is RunStatus.IMPORTED_UNFINISHED
     assert [step.step_key for step in await other_engine.steps("run-1")] == ["visit#1"]
-    with pytest.raises(RunNotAvailableError, match="imported unfinished"):
+    with pytest.raises(RunNotAvailableError, match="was imported"):
         await other_engine.execute("run-1", trip, ["a", "b"])
     with pytest.raises(ReplayDivergedError, match="visit#2"):
         await other_engine.replay("run-1", trip)

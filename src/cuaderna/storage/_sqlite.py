@@ -32,7 +32,7 @@ from cuaderna.storage._migrations import LATEST_VERSION, pending_statements
 _WAL_SWITCH_TIMEOUT_SECONDS = 5.0
 _RUN_COLUMNS = (
     "run_id, name, input_json, code_version, status, output_json, error_json, "
-    "created_at, finished_at, seal"
+    "created_at, finished_at, seal, imported_at"
 )
 _ATTEMPT_COLUMNS = (
     "step_key, name, attempt, status, args_hash, args_json, result_json, error_json, "
@@ -386,7 +386,7 @@ def _import_run(
     with _write_transaction(connection):
         try:
             connection.execute(
-                f"INSERT INTO runs ({_RUN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                f"INSERT INTO runs ({_RUN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     record.run_id,
                     record.name,
@@ -398,6 +398,7 @@ def _import_run(
                     _to_text(record.created_at),
                     None if record.finished_at is None else _to_text(record.finished_at),
                     record.seal,
+                    _now_text(),
                 ),
             )
         except sqlite3.IntegrityError as error:
@@ -487,6 +488,7 @@ def _lease_lost(lease: Lease) -> LeaseLostError:
 
 def _run_from_row(row: tuple[Any, ...]) -> RunRecord:
     finished_at = row[8]
+    imported_at = row[10]
     return RunRecord(
         run_id=row[0],
         name=row[1],
@@ -498,6 +500,7 @@ def _run_from_row(row: tuple[Any, ...]) -> RunRecord:
         created_at=datetime.fromisoformat(row[7]),
         finished_at=None if finished_at is None else datetime.fromisoformat(finished_at),
         seal=row[9],
+        imported_at=None if imported_at is None else datetime.fromisoformat(imported_at),
     )
 
 

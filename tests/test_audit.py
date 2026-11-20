@@ -101,7 +101,7 @@ async def test_allowed_denied_and_failed_attempts_read_as_entries(journal_path: 
 
 
 def test_an_attempt_without_a_policy_has_no_decision() -> None:
-    [entry] = audit_entries([attempt_with({"other": 1})])
+    [entry] = audit_entries([attempt_with({"other": 1})], False)
 
     assert (entry.decision, entry.policy, entry.rules, entry.actor) == (None, None, (), None)
 
@@ -109,7 +109,7 @@ def test_an_attempt_without_a_policy_has_no_decision() -> None:
 def test_an_approval_is_read_with_who_when_and_why() -> None:
     approval: dict[str, JsonValue] = {"by": "maxi", "at": MOMENT.isoformat(), "note": "diff ok"}
     recorded: dict[str, JsonValue] = {"decision": "allow", "effect": "ask", "approval": approval}
-    [entry] = audit_entries([attempt_with({KEY: recorded})])
+    [entry] = audit_entries([attempt_with({KEY: recorded})], False)
 
     assert (entry.effect, entry.approved_by, entry.approved_at) == ("ask", "maxi", MOMENT)
     assert entry.approval_note == "diff ok"
@@ -117,7 +117,7 @@ def test_an_approval_is_read_with_who_when_and_why() -> None:
 
 @pytest.mark.parametrize("unreadable", ["forged", 7, ["allow"], None])
 def test_an_authorization_that_is_not_an_object_is_ignored(unreadable: JsonValue) -> None:
-    [entry] = audit_entries([attempt_with({KEY: unreadable})])
+    [entry] = audit_entries([attempt_with({KEY: unreadable})], False)
 
     assert (entry.decision, entry.rules, entry.outcome) == (None, (), "ok")
 
@@ -130,7 +130,7 @@ def test_a_field_of_the_wrong_type_is_treated_as_absent() -> None:
         "actor": ["x"],
         "approval": {"by": 1, "at": "yesterday", "note": None},
     }
-    [entry] = audit_entries([attempt_with({KEY: recorded})])
+    [entry] = audit_entries([attempt_with({KEY: recorded})], False)
 
     assert (entry.decision, entry.effect, entry.actor, entry.rules) == (None, None, None, ("a",))
     assert (entry.approved_by, entry.approved_at, entry.approval_note) == (None, None, None)
