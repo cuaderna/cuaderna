@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import sqlite3
 import time
 from collections.abc import Callable, Generator
@@ -13,6 +14,7 @@ from typing import Any
 from cuaderna._chain import first_link, next_link, run_seal
 from cuaderna._errors import (
     ApprovalNotPendingError,
+    JournalBusyError,
     JournalConflictError,
     LeaseLostError,
     SchemaVersionError,
@@ -30,6 +32,9 @@ from cuaderna._records import (
 from cuaderna.storage._migrations import LATEST_VERSION, pending_statements
 
 _WAL_SWITCH_TIMEOUT_SECONDS = 5.0
+_BUSY_TIMEOUT_MS = 5000
+_BUSY_ATTEMPTS = 3
+_BUSY_PAUSE_SECONDS = 0.2
 _RUN_COLUMNS = (
     "run_id, name, input_json, code_version, status, output_json, error_json, "
     "created_at, finished_at, seal, imported_at"
@@ -116,8 +121,23 @@ class SqliteStorage:
 
     async def _call[T](self, operation: Callable[[sqlite3.Connection], T]) -> T:
         return await asyncio.get_running_loop().run_in_executor(
-            self._executor, lambda: operation(self._open_connection())
+            self._executor, lambda: self._retry_while_busy(operation)
         )
+
+    def _retry_while_busy[T](self, operation: Callable[[sqlite3.Connection], T]) -> T:
+        for attempt in range(1, _BUSY_ATTEMPTS + 1):
+            try:
+                return operation(self._open_connection())
+            except sqlite3.OperationalError as error:
+                if not _is_busy(error):
+                    raise
+                if attempt == _BUSY_ATTEMPTS:
+                    raise JournalBusyError(
+                        f"the journal at {self._path} stayed locked by another writer "
+                        f"after {attempt} attempts"
+                    ) from error
+                time.sleep(_BUSY_PAUSE_SECONDS)
+        raise JournalBusyError(f"the journal at {self._path} was never tried")
 
     def _open_connection(self) -> sqlite3.Connection:
         if self._connection is None:
@@ -131,9 +151,11 @@ class SqliteStorage:
 
 
 def _connect(path: str) -> sqlite3.Connection:
+    if os.name == "posix" and not os.path.exists(path):
+        os.close(os.open(path, os.O_RDWR | os.O_CREAT, 0o600))
     connection = sqlite3.connect(path, autocommit=True)
     try:
-        connection.execute("PRAGMA busy_timeout = 5000")
+        connection.execute(f"PRAGMA busy_timeout = {_BUSY_TIMEOUT_MS}")
         _switch_to_wal(connection)
         connection.execute("PRAGMA synchronous = FULL")
         connection.execute("PRAGMA foreign_keys = ON")
@@ -142,6 +164,11 @@ def _connect(path: str) -> sqlite3.Connection:
         connection.close()
         raise
     return connection
+
+
+def _is_busy(error: sqlite3.OperationalError) -> bool:
+    primary_code = (error.sqlite_errorcode or 0) & 0xFF
+    return primary_code in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
 
 
 def _switch_to_wal(connection: sqlite3.Connection) -> None:

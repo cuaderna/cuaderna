@@ -13,6 +13,10 @@ class JournalConflictError(CuadernaError):
     pass
 
 
+class JournalBusyError(CuadernaError):
+    pass
+
+
 class SchemaVersionError(CuadernaError):
     pass
 
