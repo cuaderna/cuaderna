@@ -89,3 +89,40 @@ test("the chain hash is reported as present or not, never as checked", () => {
     assert.equal(labels.chainText(missing), "not recorded");
   }
 });
+
+function runFileText(attempt) {
+  const run = { run_id: "r", name: "f", status: "completed", created_at: "2026-11-19T22:31:16Z" };
+  const base = { step_key: "s#1", name: "s", status: "ok", started_at: "", finished_at: "" };
+  return JSON.stringify({ format: "cuaderna.run/1", run, attempts: [{ ...base, ...attempt }] });
+}
+
+test("annotations that are not an object are refused when the file is read", () => {
+  for (const annotations of ["x", 5, true, [], [1]]) {
+    assert.throws(() => labels.parseRunFile(runFileText({ annotations })), /not a run file/);
+  }
+  for (const annotations of [undefined, null, {}, { a: 1 }]) {
+    assert.equal(labels.parseRunFile(runFileText({ annotations })).attempts.length, 1);
+  }
+});
+
+test("a file that is not JSON or not a run file is refused with a message", () => {
+  assert.throws(() => labels.parseRunFile("{"), /not JSON/);
+  assert.throws(() => labels.parseRunFile("[]"), /not a run file/);
+  assert.throws(() => labels.parseRunFile("null"), /not a run file/);
+});
+
+test("a file over the size limit is refused before it is read", () => {
+  assert.equal(labels.fileSizeProblem(0), null);
+  assert.equal(labels.fileSizeProblem(16 * 1024 * 1024), null);
+  assert.match(labels.fileSizeProblem(16 * 1024 * 1024 + 1), /larger than the 16 MiB/);
+});
+
+test("an amount with an absurd number of digits is an unknown cost", () => {
+  assert.equal(labels.costText("1".repeat(100000)), "unknown");
+  assert.equal(labels.costText("0." + "1".repeat(100000)), "unknown");
+  assert.equal(labels.costText("1".repeat(30) + "." + "1".repeat(30)), "1".repeat(30) + "." + "1".repeat(30) + " USD");
+});
+
+test("adding a very long list of amounts does not overflow the stack", () => {
+  assert.equal(labels.sumOfAmounts(new Array(300000).fill("1")), "300000");
+});

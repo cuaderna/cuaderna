@@ -7,7 +7,10 @@
     failed: "failed",
     imported_unfinished: "imported_unfinished",
   };
-  const AMOUNT_PATTERN = /^\d+(\.\d+)?$/;
+  const RUN_FILE_FORMAT = "cuaderna.run/1";
+  const MAX_FILE_BYTES = 16 * 1024 * 1024;
+  const MAX_VALUE_DEPTH = 64;
+  const AMOUNT_PATTERN = /^\d{1,30}(\.\d{1,30})?$/;
   const TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
   const AUTHORIZATION_REASONS = ["rule", "no_rule", "unevaluable", "rejected"];
   const COST_PART_LABELS = [
@@ -53,7 +56,7 @@
   }
 
   function sumOfAmounts(amounts) {
-    const places = Math.max(0, ...amounts.map(decimalPlaces));
+    const places = amounts.reduce((longest, amount) => Math.max(longest, decimalPlaces(amount)), 0);
     let scaledTotal = 0n;
     for (const amount of amounts) {
       const [whole, fraction = ""] = amount.split(".");
@@ -116,6 +119,54 @@
     return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
   }
 
+  function hasTextFields(record, names) {
+    return (
+      record !== null &&
+      typeof record === "object" &&
+      names.every((name) => typeof record[name] === "string")
+    );
+  }
+
+  function hasObjectOrNoAnnotations(attempt) {
+    const annotations = attempt.annotations;
+    return (
+      annotations === undefined ||
+      annotations === null ||
+      (typeof annotations === "object" && !Array.isArray(annotations))
+    );
+  }
+
+  function parseRunFile(text) {
+    let file;
+    try {
+      file = JSON.parse(text);
+    } catch {
+      throw new Error("This file is not JSON.");
+    }
+    const isRunFile =
+      file !== null &&
+      typeof file === "object" &&
+      file.format === RUN_FILE_FORMAT &&
+      hasTextFields(file.run, ["run_id", "name", "status", "created_at"]) &&
+      Array.isArray(file.attempts) &&
+      file.attempts.every(
+        (attempt) =>
+          hasTextFields(attempt, ["step_key", "name", "status", "started_at", "finished_at"]) &&
+          hasObjectOrNoAnnotations(attempt),
+      );
+    if (!isRunFile) {
+      throw new Error(`This is not a run file in the ${RUN_FILE_FORMAT} format.`);
+    }
+    return file;
+  }
+
+  function fileSizeProblem(bytes) {
+    if (bytes <= MAX_FILE_BYTES) {
+      return null;
+    }
+    return `This file is larger than the ${MAX_FILE_BYTES / 1024 / 1024} MiB the page opens.`;
+  }
+
   function chainText(chainHash) {
     if (typeof chainHash === "string" && chainHash !== "") {
       return "present, not checked here";
@@ -175,12 +226,15 @@
   globalThis.cuadernaLabels = {
     AMOUNT_PATTERN,
     COST_PART_LABELS,
+    MAX_VALUE_DEPTH,
     authorizationLabel,
     chainText,
     costPartsAgree,
     costText,
     durationText,
+    fileSizeProblem,
     isAmount,
+    parseRunFile,
     recordedAuthorization,
     statusClass,
     statusLabel,
