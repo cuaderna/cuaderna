@@ -7,7 +7,7 @@
       "max_rounds": 5,
       "model": "claude-haiku-5-5",
       "provider": "anthropic",
-      "repo": "/tmp/fix-tests/repo"
+      "repo": "C:\\fix-tests\\repo"
     },
     "code_version": null,
     "status": "completed",
@@ -16,9 +16,9 @@
       "rounds": 1
     },
     "error": null,
-    "created_at": "2026-11-20T04:24:27.370030Z",
-    "finished_at": "2026-11-20T04:24:28.148251Z",
-    "seal": null,
+    "created_at": "2026-11-20T16:19:30.304493Z",
+    "finished_at": "2026-11-20T16:19:30.947437Z",
+    "seal": "3b023be09e4121777314d9b94e53f2a3f3db11782e22b777952dc1d775b4c986",
     "experiment": {
       "source_run_id": "fix-tests",
       "reuse": [
@@ -36,15 +36,15 @@
       "attempt": 1,
       "status": "ok",
       "args": {
-        "repo": "/tmp/fix-tests/repo"
+        "repo": "C:\\fix-tests\\repo"
       },
       "result": {
         "passed": false,
         "output": ".F\n================================== FAILURES ===================================\n________________ test_a_discount_is_a_percentage_of_the_amount ________________\n\n    def test_a_discount_is_a_percentage_of_the_amount() -> None:\n>       assert apply_discount(200.0, 10.0) == 180.0\nE       assert 190.0 == 180.0\nE        +  where 190.0 = apply_discount(200.0, 10.0)\n\ntest_pricing.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED test_pricing.py::test_a_discount_is_a_percentage_of_the_amount - asser...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 1 passed\n"
       },
       "error": null,
-      "started_at": "2026-11-20T04:24:27.372922Z",
-      "finished_at": "2026-11-20T04:24:27.776688Z",
+      "started_at": "2026-11-20T16:19:30.306233Z",
+      "finished_at": "2026-11-20T16:19:30.653671Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
@@ -60,7 +60,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "6ee967009a3c24dab7e932d9c672fb57f82b62b6c225a9b355c345cb7b8a59df"
     },
     {
       "step_key": "read_sources#1",
@@ -68,14 +68,14 @@
       "attempt": 1,
       "status": "ok",
       "args": {
-        "repo": "/tmp/fix-tests/repo"
+        "repo": "C:\\fix-tests\\repo"
       },
       "result": {
         "pricing.py": "def subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price + quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - percent\n"
       },
       "error": null,
-      "started_at": "2026-11-20T04:24:27.786138Z",
-      "finished_at": "2026-11-20T04:24:27.786641Z",
+      "started_at": "2026-11-20T16:19:30.654908Z",
+      "finished_at": "2026-11-20T16:19:30.655336Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
@@ -91,7 +91,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "4eb1ae132603d6f759e4c284148119470dd70b74fc3a57593cdc640142b74ada"
     },
     {
       "step_key": "ask_model#1",
@@ -111,8 +111,8 @@
         "content": "# pricing.py\ndef subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price * quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - amount * percent / 100\n"
       },
       "error": null,
-      "started_at": "2026-11-20T04:24:27.788159Z",
-      "finished_at": "2026-11-20T04:24:27.788191Z",
+      "started_at": "2026-11-20T16:19:30.656048Z",
+      "finished_at": "2026-11-20T16:19:30.656077Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.reuse": {
@@ -133,7 +133,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "4cfe3287f455ffa510f04cedccc2b83be02168ff805602881868505393613a20"
     },
     {
       "step_key": "write_file#1",
@@ -145,12 +145,12 @@
           "content": "# pricing.py\ndef subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price * quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - amount * percent / 100\n",
           "path": "pricing.py"
         },
-        "repo": "/tmp/fix-tests/repo"
+        "repo": "C:\\fix-tests\\repo"
       },
       "result": null,
       "error": null,
-      "started_at": "2026-11-20T04:24:27.790380Z",
-      "finished_at": "2026-11-20T04:24:27.790807Z",
+      "started_at": "2026-11-20T16:19:30.657003Z",
+      "finished_at": "2026-11-20T16:19:30.657344Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
@@ -166,7 +166,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "12a92c5e586cba658c2a2d3f7205aefee1d50c04ae7ebe1971bfd0501dc713c2"
     },
     {
       "step_key": "run_tests#2",
@@ -174,15 +174,15 @@
       "attempt": 1,
       "status": "ok",
       "args": {
-        "repo": "/tmp/fix-tests/repo"
+        "repo": "C:\\fix-tests\\repo"
       },
       "result": {
         "passed": true,
         "output": "..                                                                       [100%]\n2 passed\n"
       },
       "error": null,
-      "started_at": "2026-11-20T04:24:27.791992Z",
-      "finished_at": "2026-11-20T04:24:28.147301Z",
+      "started_at": "2026-11-20T16:19:30.658082Z",
+      "finished_at": "2026-11-20T16:19:30.946344Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
@@ -198,7 +198,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "ae071bdca083b70990c421ed680dc1d216cdb55f2b657e0c0c0c095e5d2be2ed"
     }
   ]
 }
