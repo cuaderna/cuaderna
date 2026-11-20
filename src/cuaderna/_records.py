@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
@@ -19,11 +19,11 @@ class AttemptStatus(StrEnum):
 class RunRecord:
     run_id: str
     name: str
-    input_json: str
+    input_json: str = field(repr=False)
     code_version: str | None
     status: RunStatus
-    output_json: str | None
-    error_json: str | None
+    output_json: str | None = field(repr=False)
+    error_json: str | None = field(repr=False)
     created_at: datetime
     finished_at: datetime | None
     seal: str | None = None
@@ -37,13 +37,13 @@ class StepAttempt:
     attempt: int
     status: AttemptStatus
     args_hash: str
-    args_json: str
-    result_json: str | None
-    error_json: str | None
+    args_json: str = field(repr=False)
+    result_json: str | None = field(repr=False)
+    error_json: str | None = field(repr=False)
     started_at: datetime
     finished_at: datetime
     lease_token: int | None = None
-    annotations_json: str | None = None
+    annotations_json: str | None = field(default=None, repr=False)
     chain_hash: str | None = None
 
 
@@ -60,7 +60,7 @@ class ApprovalRequest:
     step_key: str
     name: str
     args_hash: str
-    args_json: str
+    args_json: str = field(repr=False)
     policy_id: str
     policy_hash: str
     rules: tuple[str, ...]

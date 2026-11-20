@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
@@ -17,7 +17,7 @@ class AuditEntry:
     step_key: str
     name: str
     attempt: int
-    args: JsonValue
+    args: JsonValue = field(repr=False)
     lease_token: int | None
     outcome: Literal["ok", "error", "denied"]
     decision: Literal["allow", "deny"] | None
@@ -37,7 +37,7 @@ class AuditEntry:
 class StepDecision:
     step_key: str
     name: str
-    args: JsonValue
+    args: JsonValue = field(repr=False)
     decision: Decision
 
 

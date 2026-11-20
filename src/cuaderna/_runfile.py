@@ -103,7 +103,7 @@ def dump_run_file(record: RunRecord, attempts: list[StepAttempt], redact: Redact
                 finished_at=attempt.finished_at,
                 lease_token=attempt.lease_token,
                 annotations=stored(f"{attempt.step_key}.annotations", attempt.annotations_json),
-                chain_hash=attempt.chain_hash,
+                chain_hash=None if redact is not None else attempt.chain_hash,
             )
             for attempt in attempts
         ],

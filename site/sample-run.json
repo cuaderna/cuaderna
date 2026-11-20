@@ -50,7 +50,7 @@
           "approval": null
         }
       },
-      "chain_hash": "f8aaff958bdda5a7ba3b6c5d513345a6ae4fd98977fb924275fcf7fbf3ef3b79"
+      "chain_hash": null
     },
     {
       "step_key": "read_sources#1",
@@ -81,7 +81,7 @@
           "approval": null
         }
       },
-      "chain_hash": "47ef50dea8c9f512cbb1bafe435f326cda6f086f295b93e2262a0990846c618b"
+      "chain_hash": null
     },
     {
       "step_key": "ask_model#1",
@@ -165,7 +165,7 @@
           "approval": null
         }
       },
-      "chain_hash": "7d0bf579c374ecd1c8eb2c704d1429863155700b3bb99b0675b563937d047d33"
+      "chain_hash": null
     },
     {
       "step_key": "write_file#1",
@@ -198,7 +198,7 @@
           "approval": null
         }
       },
-      "chain_hash": "9284792a9b87029f3d58365572947d7998795cea2c4ecfb27703acb30c9a3313"
+      "chain_hash": null
     },
     {
       "step_key": "run_tests#2",
@@ -230,7 +230,7 @@
           "approval": null
         }
       },
-      "chain_hash": "2629663baa72ce7d3ba9c3101cc9764abdebb4735ab770f6a061b470ab3bc999"
+      "chain_hash": null
     }
   ]
 }

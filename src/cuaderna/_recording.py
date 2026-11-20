@@ -86,8 +86,8 @@ class RecordingContext:
         if recorded is not None:
             if recorded.args_hash != hash_arguments(args_json):
                 raise StepMismatchError(
-                    f"step {step_key!r} was recorded with other arguments: "
-                    f"{recorded.args_json} then, {args_json} now"
+                    f"step {step_key!r} was recorded with arguments {recorded.args_hash}, "
+                    f"now called with {hash_arguments(args_json)}"
                 )
             if recorded.result_json is not None:
                 return definition.codec.load_result(recorded.result_json)

@@ -71,7 +71,7 @@ async def test_a_failed_run_cannot_be_executed_again(engine: Engine) -> None:
     with pytest.raises(RuntimeError):
         await engine.execute("run", broken, "out of budget")
 
-    with pytest.raises(RunFailedError, match="out of budget"):
+    with pytest.raises(RunFailedError, match="RuntimeError"):
         await engine.execute("run", broken, "out of budget")
 
 

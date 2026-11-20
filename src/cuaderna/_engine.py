@@ -40,7 +40,7 @@ from ._records import (
 from ._replay import ReplayingContext
 from ._run import RunDefinition, active_run
 from ._runfile import Redact, dump_run_file, load_run_file
-from ._serde import describe_error
+from ._serde import describe_error, hash_arguments, load_error
 from .storage import Storage
 from .storage._sqlite import SqliteStorage
 
@@ -79,15 +79,19 @@ class Engine:
             record = await self._storage.create_run(run_id, run.name, input_json, run.code_version)
             if (record.name, record.input_json) != (run.name, input_json):
                 raise RunMismatchError(
-                    f"run {run_id!r} was started as {record.name}({record.input_json}), "
-                    f"not as {run.name}({input_json})"
+                    f"run {run_id!r} was started as {record.name} with input "
+                    f"{hash_arguments(record.input_json)}, not as {run.name} with input "
+                    f"{hash_arguments(input_json)}"
                 )
             if record.imported_at is not None:
                 raise RunNotAvailableError(
                     f"run {run_id!r} was imported: it can be read and replayed, not executed"
                 )
             if record.status is RunStatus.FAILED:
-                raise RunFailedError(f"run {run_id!r} already failed: {record.error_json}")
+                error_type = (
+                    load_error(record.error_json)["type"] if record.error_json else "an error"
+                )
+                raise RunFailedError(f"run {run_id!r} already failed with {error_type}")
             if record.output_json is not None:
                 verified_digest(run_id, record, await self._storage.load_attempts(run_id))
                 return run.codec.load_result(record.output_json)
@@ -183,10 +187,10 @@ class Engine:
             )
         try:
             arguments = run.codec.load_arguments(record.input_json)
-        except ValueError as error:
+        except ValueError:
             raise RunMismatchError(
-                f"the recorded input of run {run_id!r} does not fit {run.name} now: {error}"
-            ) from error
+                f"the recorded input of run {run_id!r} does not fit {run.name} now"
+            ) from None
         attempts = await self._storage.load_attempts(run_id)
         context = ReplayingContext(run_id, {attempt.step_key: attempt for attempt in attempts})
         try:
