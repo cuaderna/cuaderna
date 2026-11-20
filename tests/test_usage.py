@@ -1,7 +1,7 @@
+from collections.abc import Callable
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
 
 import cuaderna
 
@@ -102,13 +102,6 @@ def test_an_anthropic_response_without_usage_has_no_token_counts() -> None:
         "gen_ai.response.model": "claude-haiku-4-5-20251001",
         "gen_ai.response.id": "msg_01",
     }
-
-
-def test_an_anthropic_usage_that_is_not_a_count_is_refused() -> None:
-    usage = {"input_tokens": "many", "output_tokens": 40}
-
-    with pytest.raises(ValidationError):
-        cuaderna.usage.from_anthropic(anthropic_response(usage), requested_model="claude-haiku-4-5")
 
 
 def test_an_ollama_reply_keeps_everything_but_the_message() -> None:
@@ -257,13 +250,6 @@ def test_an_openai_response_without_usage_has_no_token_counts() -> None:
     }
 
 
-def test_an_openai_usage_that_is_not_a_count_is_refused() -> None:
-    usage = {"input_tokens": "many", "output_tokens": 40}
-
-    with pytest.raises(ValidationError):
-        cuaderna.usage.from_openai_responses(openai_response(usage), requested_model="gpt-5.4-mini")
-
-
 def chat_completion(usage: dict[str, Any], **extra: object) -> dict[str, Any]:
     return {
         "id": "chatcmpl-01",
@@ -341,3 +327,65 @@ def test_a_chat_completion_without_usage_has_no_token_counts() -> None:
         "gen_ai.response.model": "gpt-5.4-mini-2026-03-17",
         "gen_ai.response.id": "chatcmpl-01",
     }
+
+
+FromUsage = Callable[..., dict[str, Any]]
+BuildResponse = Callable[[Any], dict[str, Any]]
+PROVIDERS = [
+    (cuaderna.usage.from_anthropic, anthropic_response, ("input_tokens", "output_tokens")),
+    (cuaderna.usage.from_openai_responses, openai_response, ("input_tokens", "output_tokens")),
+    (cuaderna.usage.from_openai_chat, chat_completion, ("prompt_tokens", "completion_tokens")),
+]
+UNREADABLE = [None, "many", 1.5, True, -1, 10**12 + 1, 10**5000]
+
+
+@pytest.mark.parametrize("count", UNREADABLE, ids=lambda count: type(count).__name__)
+@pytest.mark.parametrize(("from_usage", "build", "fields"), PROVIDERS)
+def test_a_count_that_cannot_be_read_leaves_the_counts_out_without_raising(
+    from_usage: FromUsage, build: BuildResponse, fields: tuple[str, str], count: object
+) -> None:
+    facts = from_usage(build({fields[0]: count, fields[1]: 40}), requested_model="m")
+
+    assert "gen_ai.usage.input_tokens" not in facts
+    assert "gen_ai.usage.output_tokens" not in facts
+    assert facts["gen_ai.request.model"] == "m"
+
+
+def test_anthropic_cache_writes_given_only_by_lifetime_are_summed() -> None:
+    usage = {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "cache_creation": {"ephemeral_5m_input_tokens": 2_000_000, "ephemeral_1h_input_tokens": 4},
+    }
+
+    facts = cuaderna.usage.from_anthropic(anthropic_response(usage), requested_model="m")
+
+    assert facts["gen_ai.usage.cache_write.input_tokens"] == 2_000_004
+    assert facts["gen_ai.usage.input_tokens"] == 2_000_014
+    assert facts["cuaderna.usage.cache_write_by_ttl"] == {"5m": 2_000_000, "1h": 4}
+
+
+def test_openai_cache_writes_given_only_by_lifetime_are_summed() -> None:
+    details = {"cache_write_tokens_details": {"ttl_30m_tokens": 100}}
+    usage = {"input_tokens": 150, "output_tokens": 5, "input_tokens_details": details}
+
+    facts = cuaderna.usage.from_openai_responses(openai_response(usage), requested_model="m")
+
+    assert facts["gen_ai.usage.cache_write.input_tokens"] == 100
+    assert facts["cuaderna.usage.cache_write_by_ttl"] == {"30m": 100}
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        pytest.param({"prompt_eval_count": "many", "eval_count": 10**5000}, id="counts"),
+        pytest.param({"model": 5, "eval_count": 3.5}, id="model-and-float"),
+        pytest.param({"options": {"seed": object()}}, id="not-json"),
+        pytest.param({}, id="empty"),
+    ],
+)
+def test_an_ollama_reply_with_odd_fields_is_recorded_without_raising(reply: dict[str, Any]) -> None:
+    facts = cuaderna.usage.from_ollama(reply, requested_model="qwen3")
+
+    assert facts["gen_ai.request.model"] == "qwen3"
+    assert "gen_ai.usage.output_tokens" not in facts

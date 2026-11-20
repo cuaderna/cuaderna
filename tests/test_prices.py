@@ -1,3 +1,4 @@
+import decimal
 import json
 from decimal import Decimal
 from pathlib import Path
@@ -252,3 +253,22 @@ def test_a_file_of_exactly_max_bytes_is_read(tmp_path: Path) -> None:
 
     with pytest.raises(cuaderna.PriceTableError, match="limit"):
         cuaderna.PriceTable.load(path, max_bytes=len(content) - 1)
+
+
+@pytest.mark.parametrize("rate", ["1e999999", "1e10", "0.0000000000000000001", "1" * 40])
+def test_a_rate_the_arithmetic_cannot_carry_is_refused_naming_the_model_and_the_field(
+    rate: str,
+) -> None:
+    with pytest.raises(cuaderna.PriceTableError, match=r"claude-haiku-4-5.*output"):
+        cuaderna.PriceTable(table_document(rates={"input": "1", "output": rate}))
+
+
+def test_pricing_that_overflows_is_unknown_instead_of_an_exception() -> None:
+    table = cuaderna.PriceTable(table_document())
+
+    with decimal.localcontext() as context:
+        context.Emax = 2
+        priced = table.price(model_call())
+
+    assert isinstance(priced, UnknownCost)
+    assert "arithmetic" in priced.reason

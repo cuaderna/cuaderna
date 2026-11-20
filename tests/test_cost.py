@@ -2,6 +2,7 @@ import json
 from collections.abc import AsyncIterator
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import JsonValue, ValidationError
@@ -247,3 +248,39 @@ def test_a_reported_cost_has_to_be_an_amount() -> None:
         cuaderna.usage.reported_cost("-1", "a refund")
     with pytest.raises(ValidationError):
         cuaderna.usage.reported_cost("a lot", "no number")
+
+
+ODD_USAGE: dict[str, tuple[Any, str]] = {
+    "no output count": ({"input_tokens": 10}, "gen_ai.usage.output_tokens"),
+    "huge count": ({"input_tokens": 10**5000, "output_tokens": 5}, "gen_ai.usage.input_tokens"),
+    "not an object": ("oops", "gen_ai.usage.input_tokens"),
+}
+paid_calls: list[str] = []
+
+
+@cuaderna.step(max_attempts=3, backoff_seconds=0)
+async def pay_and_annotate_odd_usage(case: str) -> str:
+    paid_calls.append(case)
+    response = {"model": "small", "usage": ODD_USAGE[case][0]}
+    cuaderna.annotate(cuaderna.usage.from_anthropic(response, requested_model="small"))
+    return "answer"
+
+
+@cuaderna.run
+async def ask_and_get_odd_usage(case: str) -> str:
+    return await pay_and_annotate_odd_usage(case)
+
+
+@pytest.mark.parametrize("case", ODD_USAGE)
+async def test_a_paid_call_with_unreadable_usage_is_recorded_once_as_unknown(
+    priced_engine: Engine, case: str
+) -> None:
+    paid_calls.clear()
+
+    await priced_engine.execute("run-1", ask_and_get_odd_usage, case)
+
+    [recorded] = await recorded_costs(priced_engine, "run-1")
+    assert paid_calls == [case]
+    assert isinstance(recorded, dict)
+    assert recorded["basis"] == "unknown"
+    assert ODD_USAGE[case][1] in recorded["reason"]
