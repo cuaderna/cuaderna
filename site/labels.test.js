@@ -230,3 +230,98 @@ test("a fault annotation of the wrong types does not break the experiment line",
   const line = labels.experimentLine(labels.experimentFacts(runFile({ experiment }, attempts)));
   assert.match(line, /was planned but no step carries it/);
 });
+
+function entry(overrides = {}) {
+  return { file: "experiments/a.json", run_id: "r", kind: "experiment", fault: "f", trial: 1, ended: "t", outcome: null, ...overrides };
+}
+
+function indexOf(...entries) {
+  return JSON.stringify(entries);
+}
+
+test("an index with a path that leaves the page, names a scheme or is not a json file is invalid", () => {
+  const hostile = [
+    "../secret.json",
+    "a/../b.json",
+    "a/..json",
+    "/etc/x.json",
+    "https://example.com/a.json",
+    "javascript:alert(1).json",
+    "//example.com/a.json",
+    "a//b.json",
+    "./a.json",
+    "a\\b.json",
+    "a b.json",
+    "a.json?x=1",
+    "a.json#x",
+    "a.txt",
+    "a.json\n",
+    "",
+    5,
+    null,
+    "a".repeat(300) + ".json",
+  ];
+  for (const file of hostile) {
+    assert.throws(() => labels.parseRunIndex(indexOf(entry({ file }))), /not valid/);
+  }
+  assert.equal(labels.parseRunIndex(indexOf(entry({ file: "experiments/model-timeout_2.json" }))).length, 1);
+});
+
+test("an index with a field of the wrong type is invalid as a whole", () => {
+  const hostile = [
+    { run_id: 5 },
+    { run_id: { toString: "x" } },
+    { kind: "other" },
+    { kind: "__proto__" },
+    { fault: 5 },
+    { fault: undefined },
+    { trial: "1" },
+    { trial: 1.5 },
+    { ended: null },
+    { outcome: 7 },
+    { extra: "x" },
+  ];
+  for (const overrides of hostile) {
+    assert.throws(() => labels.parseRunIndex(indexOf(entry(), entry(overrides))), /not valid/);
+  }
+  for (const text of ["{}", "null", "5", '"x"', '[null]', "[[]]"]) {
+    assert.throws(() => labels.parseRunIndex(text), /not valid/);
+  }
+  assert.throws(() => labels.parseRunIndex("{"), /not JSON/);
+});
+
+test("an index of more than 200 entries is invalid", () => {
+  assert.equal(labels.parseRunIndex(JSON.stringify(new Array(200).fill(entry()))).length, 200);
+  assert.throws(() => labels.parseRunIndex(JSON.stringify(new Array(300).fill(entry()))), /not valid/);
+});
+
+test("the picker lists the source, then the control, then experiments grouped by fault", () => {
+  const entries = [
+    entry({ file: "e/t2.json", fault: "model-timeout", trial: 2, outcome: "fixed" }),
+    entry({ file: "e/b1.json", fault: "bad-edit", trial: 1, outcome: "failed" }),
+    entry({ file: "e/t1.json", fault: "model-timeout", trial: 1, outcome: null }),
+    entry({ file: "control.json", kind: "control", fault: null, trial: null }),
+    entry({ file: "sample-run.json", kind: "source", fault: null, trial: null }),
+  ];
+  const choices = labels.pickerChoices(entries);
+  assert.deepEqual(
+    choices.map(({ file }) => file),
+    ["sample-run.json", "control.json", "e/b1.json", "e/t1.json", "e/t2.json"],
+  );
+  assert.deepEqual(
+    choices.map(({ label }) => label),
+    [
+      "what was recorded",
+      "replayed with nothing changed",
+      "bad-edit, trial 1: failed",
+      "model-timeout, trial 1",
+      "model-timeout, trial 2: fixed",
+    ],
+  );
+});
+
+test("a picker label is text and never changes the file it opens", () => {
+  const [choice] = labels.pickerChoices([entry({ fault: "<img src=x onerror=alert(1)>", trial: null })]);
+  assert.equal(choice.label, "<img src=x onerror=alert(1)>");
+  assert.equal(choice.file, "experiments/a.json");
+});

@@ -1,4 +1,5 @@
 const SAMPLE_URL = "sample-run.json";
+const INDEX_URL = "runs.json";
 const MODEL_FACTS = [
   ["requested model", "gen_ai.request.model"],
   ["answered by", "gen_ai.response.model"],
@@ -15,7 +16,8 @@ const ATTEMPT_CANNOT_BE_SHOWN = "This attempt cannot be shown.";
 const FILE_CANNOT_BE_SHOWN = "This file could not be shown.";
 const FILE_CANNOT_BE_READ = "This file could not be read.";
 const FILE_IS_NOT_TEXT = "This file is not UTF-8 text.";
-const SAMPLE_CANNOT_BE_LOADED = "The sample run could not be loaded.";
+const SAMPLE_RUN = "The sample run";
+const PICKED_RUN = "That run";
 
 const labels = globalThis.cuadernaLabels;
 const statusLine = document.querySelector("#status");
@@ -24,6 +26,9 @@ const detail = document.querySelector("#detail");
 const fileInput = document.querySelector("#file");
 const scrubber = document.querySelector("#scrubber");
 const scrubberPosition = document.querySelector("#scrubber-position");
+const picker = document.querySelector("#run-picker");
+const pickerLabel = document.querySelector("#run-picker-label");
+const experimentNote = document.querySelector("#experiment-note");
 const stackedLayout = window.matchMedia("(max-width: 60rem)");
 let rows = [];
 let latestRequest = 0;
@@ -247,6 +252,33 @@ function authorizationFacts(recorded) {
   return facts.filter(([, value]) => value !== null);
 }
 
+function faultFacts(recorded) {
+  if (recorded.unreadable) {
+    return [["injected fault", UNREADABLE_AUTHORIZATION]];
+  }
+  let stepRan = "no";
+  if (recorded.executed) {
+    stepRan = "yes";
+  }
+  return [
+    ["fault", recorded.fault_id],
+    ["kind", recorded.kind],
+    ["step ran", stepRan],
+  ];
+}
+
+function reuseFacts(recorded) {
+  if (recorded.unreadable) {
+    return [["from the recording", UNREADABLE_AUTHORIZATION]];
+  }
+  return [
+    ["answer taken from run", recorded.run_id],
+    ["step", recorded.step_key],
+    ["attempt", String(recorded.attempt)],
+    ["step ran", "no, the recorded answer was used"],
+  ];
+}
+
 function rowStatusText(attempt) {
   const label = labels.authorizationLabel(labels.recordedAuthorization(attempt));
   const showsStatus = label === "allowed" || (label === "approved" && attempt.status !== "ok");
@@ -386,6 +418,14 @@ function showAttemptDetail(attempt) {
     element("h3", "", "Authorization"),
     factsNode(authorizationFacts(labels.recordedAuthorization(attempt))),
   );
+  const fault = labels.recordedFault(attempt);
+  if (fault !== null) {
+    nodes.push(element("h3", "", "Injected fault"), factsNode(faultFacts(fault)));
+  }
+  const reuse = labels.recordedReuse(attempt);
+  if (reuse !== null) {
+    nodes.push(element("h3", "", "From the recording"), factsNode(reuseFacts(reuse)));
+  }
   nodes.push(
     ...sectionNodes("Arguments", attempt.args),
     ...outcomeNodes(
@@ -451,7 +491,7 @@ function attemptRow(attempt, longestSeconds) {
       cell("", `attempt ${attempt.attempt}`),
       cell("", labels.durationText(attempt.started_at, attempt.finished_at)),
       cell("", attemptCostText(attemptCost(attempt))),
-      cell("status", rowStatusText(attempt)),
+      cell("status", [rowStatusText(attempt), ...labels.attemptMarks(attempt)].join(", ")),
       bar,
     ],
     attempt.status,
@@ -510,8 +550,19 @@ function statusNodes(run, attemptCount, cost) {
   return [...nodes, "."];
 }
 
+function showExperimentNote(line) {
+  if (line === null) {
+    experimentNote.replaceChildren();
+    experimentNote.hidden = true;
+    return;
+  }
+  experimentNote.textContent = line;
+  experimentNote.hidden = false;
+}
+
 function showRunFile(file) {
   const { run, attempts } = file;
+  const experimentLine = labels.experimentLine(labels.experimentFacts(file));
   const previousRows = rows;
   rows = [];
   try {
@@ -522,6 +573,7 @@ function showRunFile(file) {
   }
   scrubber.max = String(attempts.length);
   selectRow(0);
+  showExperimentNote(experimentLine);
   statusLine.classList.remove("problem");
   statusLine.replaceChildren(...statusNodes(run, attempts.length, runCost(attempts)));
 }
@@ -580,17 +632,45 @@ function showRunText(text) {
   }
 }
 
-async function sampleText() {
+async function fetchedText(url, subject) {
   let response;
   try {
-    response = await fetch(SAMPLE_URL);
+    response = await fetch(url);
   } catch {
-    throw new Error(SAMPLE_CANNOT_BE_LOADED);
+    throw new Error(`${subject} could not be loaded.`);
   }
   if (!response.ok) {
-    throw new Error(`The sample run could not be loaded (HTTP ${response.status}).`);
+    throw new Error(`${subject} could not be loaded (HTTP ${response.status}).`);
   }
-  return response.text();
+  const text = await response.text();
+  const sizeProblem = labels.fileSizeProblem(new Blob([text]).size);
+  if (sizeProblem !== null) {
+    throw new Error(sizeProblem);
+  }
+  return text;
+}
+
+function fillPicker(choices) {
+  const options = choices.map(({ file, label }) => {
+    const option = element("option", "", label);
+    option.value = file;
+    return option;
+  });
+  picker.replaceChildren(...options);
+  pickerLabel.hidden = false;
+}
+
+async function loadIndex() {
+  try {
+    const choices = labels.pickerChoices(
+      labels.parseRunIndex(await fetchedText(INDEX_URL, "The run index")),
+    );
+    if (choices.length > 1) {
+      fillPicker(choices);
+    }
+  } catch {
+    pickerLabel.hidden = true;
+  }
 }
 
 async function fileText(file) {
@@ -640,10 +720,14 @@ document.addEventListener("drop", (event) => {
   event.preventDefault();
   openFile(event.dataTransfer.files[0]);
 });
+picker.addEventListener("change", () =>
+  showLatest(() => fetchedText(picker.value, PICKED_RUN)),
+);
 scrubber.addEventListener("input", () => {
   const position = Number(scrubber.value);
   selectRow(position);
   rows[position].button.scrollIntoView({ block: "nearest" });
 });
 
-showLatest(sampleText);
+showLatest(() => fetchedText(SAMPLE_URL, SAMPLE_RUN));
+loadIndex();

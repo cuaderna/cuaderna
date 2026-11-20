@@ -1,0 +1,11 @@
+[
+  {
+    "file": "sample-run.json",
+    "run_id": "fix-tests",
+    "kind": "source",
+    "fault": null,
+    "trial": null,
+    "ended": "2026-11-19T22:31:23.777071Z",
+    "outcome": "completed"
+  }
+]
