@@ -8,13 +8,15 @@ from decimal import Decimal
 from functools import partial
 from pathlib import Path
 
-from examples.fix_tests import agent
+from examples.fix_tests import agent, gives_up
 from pydantic import BaseModel, JsonValue
 
 import cuaderna
 from cuaderna import Engine, Experiment, Fault, FaultPlan
 
 FAULTS = Path(__file__).parent / "faults.json"
+PLAIN = "agent"
+GIVES_UP = "gives-up"
 _ACTOR = "fix-tests-experiments"
 _REJECTED_BY = "experiments"
 _OBEYED_TARGETS = {"poisoned-source": "conftest.py", "poisoned-test-output": "test_pricing.py"}
@@ -49,6 +51,8 @@ class _Options:
     out: Path
     trials: int
     keep_paths: bool
+    agent_name: str
+    fault_ids: tuple[str, ...]
 
 
 def _failure(error: cuaderna.CuadernaError) -> str:
@@ -73,16 +77,11 @@ async def _rerun_until_it_ends(
     source_run_id: str,
     run_id: str,
     fault: Fault | None,
+    agent_name: str,
 ) -> str:
     while True:
         try:
-            summary = await engine.rerun(
-                source_run_id,
-                agent.fix_tests,
-                as_run_id=run_id,
-                reuse=[agent.ask_model],
-                fault=fault,
-            )
+            summary = await _rerun(engine, source_run_id, run_id, fault, agent_name)
         except cuaderna.ApprovalRequiredError:
             for request in await engine.pending(run_id):
                 await engine.reject(request, by=_REJECTED_BY)
@@ -95,7 +94,33 @@ async def _rerun_until_it_ends(
         ) as error:
             return _failure(error)
         else:
-            return "fixed" if summary.fixed else "not fixed"
+            return _ended(summary)
+
+
+async def _rerun(
+    engine: Engine,
+    source_run_id: str,
+    run_id: str,
+    fault: Fault | None,
+    agent_name: str,
+) -> agent.Summary:
+    if agent_name == GIVES_UP:
+        return await engine.rerun(
+            source_run_id,
+            gives_up.fix_tests,
+            as_run_id=run_id,
+            reuse=[agent.ask_model],
+            fault=fault,
+        )
+    return await engine.rerun(
+        source_run_id, agent.fix_tests, as_run_id=run_id, reuse=[agent.ask_model], fault=fault
+    )
+
+
+def _ended(summary: agent.Summary) -> str:
+    if isinstance(summary, gives_up.Summary) and summary.gave_up is not None:
+        return f"gave up: {summary.gave_up}"
+    return "fixed" if summary.fixed else "not fixed"
 
 
 async def _obeyed(engine: Engine, run_id: str, target: str) -> str:
@@ -112,10 +137,11 @@ async def _obeyed(engine: Engine, run_id: str, target: str) -> str:
     return "obeyed and executed"
 
 
-def _run_id(source_run_id: str, fault: Fault | None, number: int | None) -> str:
+def _run_id(source_run_id: str, fault: Fault | None, number: int | None, agent_name: str) -> str:
+    prefix = source_run_id if agent_name == PLAIN else f"{source_run_id}.{agent_name}"
     if fault is None:
-        return f"{source_run_id}.control"
-    return f"{source_run_id}.{fault.id}.{number}"
+        return f"{prefix}.control"
+    return f"{prefix}.{fault.id}.{number}"
 
 
 async def run_trial(
@@ -124,11 +150,13 @@ async def run_trial(
     workdir: Path,
     fault: Fault | None,
     number: int | None,
+    *,
+    agent_name: str = PLAIN,
 ) -> Trial:
-    run_id = _run_id(source_run_id, fault, number)
+    run_id = _run_id(source_run_id, fault, number, agent_name)
     shutil.rmtree(workdir / "repo", ignore_errors=True)
     shutil.copytree(agent.SAMPLE, workdir / "repo")
-    ended = await _rerun_until_it_ends(engine, source_run_id, run_id, fault)
+    ended = await _rerun_until_it_ends(engine, source_run_id, run_id, fault, agent_name)
     target = None if fault is None else _OBEYED_TARGETS.get(fault.id)
     return Trial(
         run_id,
@@ -178,6 +206,7 @@ async def _main(options: _Options) -> None:
         plan = FaultPlan.load(FAULTS)
     except cuaderna.FaultPlanError as error:
         raise SystemExit(f"{FAULTS}: {error}") from error
+    faults = _chosen_faults(plan, options.fault_ids)
     engine = Engine(
         options.journal,
         lease_seconds=agent.LEASE_SECONDS,
@@ -185,12 +214,22 @@ async def _main(options: _Options) -> None:
         actor=_ACTOR,
     )
     try:
-        await _experiments(engine, options, plan)
+        await _experiments(engine, options, faults)
     finally:
         await engine.close()
 
 
-async def _experiments(engine: Engine, options: _Options, plan: FaultPlan) -> None:
+def _chosen_faults(plan: FaultPlan, fault_ids: tuple[str, ...]) -> tuple[Fault, ...]:
+    if not fault_ids:
+        return tuple(plan.faults)
+    known = {fault.id for fault in plan.faults}
+    unknown = [fault_id for fault_id in fault_ids if fault_id not in known]
+    if unknown:
+        raise SystemExit(f"{FAULTS} has no fault {', '.join(unknown)}")
+    return tuple(fault for fault in plan.faults if fault.id in fault_ids)
+
+
+async def _experiments(engine: Engine, options: _Options, faults: tuple[Fault, ...]) -> None:
     try:
         source = await engine.run_record(options.source)
     except cuaderna.RunNotFoundError as error:
@@ -217,16 +256,27 @@ async def _experiments(engine: Engine, options: _Options, plan: FaultPlan) -> No
             "outcome": None,
         }
     ]
-    control = await run_trial(engine, options.source, options.workdir, None, None)
+    control = await run_trial(
+        engine, options.source, options.workdir, None, None, agent_name=options.agent_name
+    )
     if control.experiment.diverged_at is not None or control.ended.startswith("failed"):
         raise SystemExit(
             f"the control {control.run_id!r} did not follow the recording ({control.ended}, "
             f"diverged at {control.experiment.diverged_at}): the experiment would tell nothing"
         )
     trials = [control]
-    for fault in plan.faults:
+    for fault in faults:
         for number in range(1, options.trials + 1):
-            trials.append(await run_trial(engine, options.source, options.workdir, fault, number))
+            trials.append(
+                await run_trial(
+                    engine,
+                    options.source,
+                    options.workdir,
+                    fault,
+                    number,
+                    agent_name=options.agent_name,
+                )
+            )
     print(" | ".join(_COLUMNS))
     for trial in trials:
         print(_row(trial))
@@ -251,6 +301,18 @@ if __name__ == "__main__":
     )
     parser.add_argument("--trials", type=int, default=3)
     parser.add_argument(
+        "--agent",
+        choices=[PLAIN, GIVES_UP],
+        default=PLAIN,
+        help="rerun with agent.py, or with gives_up.py, which gives up when a step fails",
+    )
+    parser.add_argument(
+        "--fault",
+        action="append",
+        default=[],
+        help="run only this fault of faults.json; repeat it for several",
+    )
+    parser.add_argument(
         "--keep-paths",
         action="store_true",
         help=(
@@ -268,6 +330,8 @@ if __name__ == "__main__":
                 arguments.out,
                 arguments.trials,
                 arguments.keep_paths,
+                arguments.agent,
+                tuple(arguments.fault),
             )
         )
     )

@@ -127,3 +127,11 @@ uv run python -m examples.fix_tests.experiments --journal /tmp/fix-tests/journal
 `--workdir` is the directory the source run was made in, because its repo is where the steps that execute run again. `--trials` sets how many trials each fault gets. It runs a control first and stops if the control does not follow the recording. It prints one line per run with the fault, the trial, the step where it fired, where the run first had to execute something again, how many attempts came from the recording and how many executed, how the run ended, what it cost and what the injected text did. It then writes each run as a file in `--out`, with local paths hidden unless you pass `--keep-paths` (which keeps the values as recorded, so `verify` can check the files), and a `runs.json` index that [the run page](../../docs/run-page.md) reads.
 
 Faults that make the model run again need the same model access the source run had, for example `ANTHROPIC_API_KEY` for a run recorded with `--provider anthropic`. What the published recordings show is in [the run page](../../docs/run-page.md#the-experiments).
+
+[gives_up.py](gives_up.py) is the same agent with one change: when a step fails for good, it ends the run with a summary that says which step failed and how, instead of raising. `--agent gives-up` reruns the faults with it, and `--fault` picks which faults run, so the two that end the first agent's run can be tried without any model access:
+
+```
+uv run python -m examples.fix_tests.experiments --journal /tmp/fix-tests/journal.db --source fix-tests --workdir /tmp/fix-tests --out /tmp/fix-tests-gives-up --agent gives-up --fault model-down --fault tests-unavailable
+```
+
+Its runs are named `fix-tests.gives-up.control` and `fix-tests.gives-up.<fault>.<trial>`. A recording of the first agent failing on `model-down`, replayed against `gives_up.fix_tests`, raises `ReplayDivergedError`: the run that failed now returns. That is the regression signal [docs/faults.md](../../docs/faults.md#keeping-an-experiment) describes, and it costs nothing to run.

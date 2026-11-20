@@ -5,7 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from examples.fix_tests import agent, experiments
+from examples.fix_tests import agent, experiments, gives_up
 
 import cuaderna
 from cuaderna import Engine, Fault, FaultPlan
@@ -194,3 +194,34 @@ async def test_a_run_that_already_failed_is_reported_as_failed_on_the_next_pass(
 
     assert first.ended == "failed with ConnectionError"
     assert second.ended == "failed with ConnectionError"
+
+
+@pytest.mark.parametrize(
+    ("fault_id", "ended"),
+    [
+        ("model-down", "gave up: ask_model failed with ConnectionError"),
+        ("tests-unavailable", "gave up: run_tests failed with OSError"),
+    ],
+)
+async def test_the_agent_that_gives_up_ends_its_run_with_a_summary_when_a_step_fails(
+    recorded: tuple[Engine, Path], monkeypatch: pytest.MonkeyPatch, fault_id: str, ended: str
+) -> None:
+    engine, workdir = recorded
+    _script_the_model(monkeypatch, _FIX)
+
+    trial = await experiments.run_trial(
+        engine, "source", workdir, _fault(fault_id), 1, agent_name=experiments.GIVES_UP
+    )
+
+    assert (trial.run_id, trial.ended) == (f"source.gives-up.{fault_id}.1", ended)
+
+
+async def test_a_recorded_failure_replayed_against_the_agent_that_gives_up_diverges(
+    recorded: tuple[Engine, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine, workdir = recorded
+    _script_the_model(monkeypatch, _FIX)
+    trial = await experiments.run_trial(engine, "source", workdir, _fault("model-down"), 1)
+
+    with pytest.raises(cuaderna.ReplayDivergedError, match="recorded as failed"):
+        await engine.replay(trial.run_id, gives_up.fix_tests)
