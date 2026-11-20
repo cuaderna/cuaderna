@@ -134,6 +134,59 @@ def test_under_is_decided_on_the_text_of_the_path(path: str, directory: str, hol
     assert allows({"path": {"under": directory}}, {"path": path}) is holds
 
 
+AMBIGUOUS_PATHS = [
+    ".GITHUB/wf.yml",
+    ".github./wf.yml",
+    "GITHUB~1/wf.yml",
+    ".github::$INDEX_ALLOCATION/wf.yml",
+    "src/.. /secret.txt",
+    "src/ok.txt.",
+    "src/ok.txt ",
+    "src/a.txt:stream",
+    "src/CON",
+    "src/nul.txt",
+    "SRC/a.py",
+    "src/\u0065\u0301.py",
+    "src/a\x00b",
+]
+
+
+@pytest.mark.parametrize("path", AMBIGUOUS_PATHS)
+def test_a_path_the_filesystem_may_read_differently_denies_the_step(path: str) -> None:
+    rules = [
+        rule("everything", "allow"),
+        rule("src", "allow", {"path": {"under": "src"}}),
+        rule("workflows", "deny", {"path": {"under": ".github"}}),
+    ]
+
+    decision = decide(rules, {"path": path})
+
+    assert decision.effect == "deny"
+    assert decision.reason == "unevaluable"
+
+
+@pytest.mark.parametrize(
+    ("path", "effect", "reason"),
+    [
+        ("src/a.py", "allow", "rule"),
+        ("src/Sub/A.py", "allow", "rule"),
+        ("docs/a.md", "deny", "no_rule"),
+    ],
+)
+def test_a_plain_path_is_still_decided_on_its_text(path: str, effect: str, reason: str) -> None:
+    decision = decide([rule("src", "allow", {"path": {"under": "src"}})], {"path": path})
+
+    assert (decision.effect, decision.reason) == (effect, reason)
+
+
+def test_a_value_that_matches_a_glob_only_when_case_is_ignored_denies_the_step() -> None:
+    rules = [rule("everything", "allow"), rule("tests", "ask", {"name": {"glob": "test_*"}})]
+
+    assert decide(rules, {"name": "TEST_x.py"}).reason == "unevaluable"
+    assert decide(rules, {"name": "test_x.py"}).effect == "ask"
+    assert decide(rules, {"name": "other.py"}).effect == "allow"
+
+
 def test_every_path_in_a_when_must_hold() -> None:
     when = {"edit.path": {"under": "src"}, "edit.mode": {"equals": "append"}}
 
