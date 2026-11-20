@@ -1,10 +1,13 @@
+import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 import cuaderna
+from cuaderna._serde import canonical_json
 
 LOOK = {"id": "look", "effect": "allow", "steps": ["run_tests", "read_sources"]}
 NO_RULE = cuaderna.Decision("deny", "no_rule", ())
@@ -266,9 +269,21 @@ def test_the_hash_follows_the_content_and_not_the_layout() -> None:
     reordered = cuaderna.Policy(json.loads(json.dumps(policy_document(LOOK), sort_keys=True)))
     edited = cuaderna.Policy(policy_document({**LOOK, "effect": "deny"}))
 
-    assert len(original.content_hash) == 12
     assert original.content_hash == reordered.content_hash
     assert original.content_hash != edited.content_hash
+
+
+def test_the_hash_is_the_full_sha256_of_the_canonical_policy() -> None:
+    document = policy_document(LOOK)
+    other = policy_document({**LOOK, "effect": "deny"})
+
+    first = cuaderna.Policy(document).content_hash
+    second = cuaderna.Policy(other).content_hash
+
+    assert re.fullmatch(r"[0-9a-f]{64}", first)
+    assert re.fullmatch(r"[0-9a-f]{64}", second)
+    assert first != second
+    assert first == hashlib.sha256(canonical_json(document).encode()).hexdigest()
 
 
 DEEP = b'{"a": ' + b"[" * 100_000 + b"]" * 100_000 + b"}"
