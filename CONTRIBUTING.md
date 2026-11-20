@@ -35,7 +35,7 @@ uv run pytest
 
 `uv run ruff format` fixes formatting. Pyright runs in strict mode over `src`, `tests` and `examples`, and the test suite treats warnings as errors.
 
-The checks are not run automatically on a pull request. A maintainer runs the `ci` workflow by hand, on Ubuntu with Python 3.12, 3.13 and 3.14, so say in the pull request which platform and Python version you ran them on.
+The `ci` workflow runs the same checks on every pull request and on every push to `main`, on Ubuntu with Python 3.12, 3.13 and 3.14. The first pull request of a new contributor waits for a maintainer to approve the workflow run.
 
 ## Pull requests
 
