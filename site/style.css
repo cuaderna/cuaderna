@@ -155,16 +155,16 @@ h3 small {
 }
 
 .row span {
+  overflow: hidden;
   color: var(--quiet);
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .row .key {
-  overflow: hidden;
   color: var(--ink);
   font-family: var(--mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 @media (max-width: 40rem) {
@@ -212,6 +212,7 @@ dt {
 
 dd {
   margin: 0;
+  overflow-wrap: anywhere;
   min-inline-size: 0;
 }
 
