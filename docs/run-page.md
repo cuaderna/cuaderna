@@ -35,7 +35,7 @@ Two numbers from that run:
 
 ## The experiments
 
-The picker lists the sample run, the control and the 18 experiments of [examples/fix_tests/faults.json](../examples/fix_tests/faults.json), six faults with three trials each. Each experiment is a rerun of the sample run in which the model call is served from the recording and one thing is changed. [examples/fix_tests/experiments.py](../examples/fix_tests/experiments.py) made them, and the files are the [published recordings](../site/experiments).
+The picker lists the sample run, the control and the 18 experiments of [examples/fix_tests/faults.json](../examples/fix_tests/faults.json), six faults with three trials each. Each experiment is a rerun of the sample run in which the model call is served from the recording and one thing is changed. [examples/fix_tests/experiments.py](../examples/fix_tests/experiments.py) made them, and the files are the [published recordings](../site/experiments). The picker also lists, in a group of their own, the runs of a changed agent described in [After a change to the agent](#after-a-change-to-the-agent).
 
 | Fault | What was injected | Tests ended fixed | Otherwise | Model calls added | Cost added (USD) |
 | --- | --- | --- | --- | --- | --- |
@@ -51,5 +51,18 @@ The source run made one model call and cost 0.0001758 USD, so a trial that costs
 These are three trials of one agent, on one model, on one tiny repository. They are counts, not rates. The agent was deliberately not changed to survive anything, so "the model is down" and "the tests cannot be run" end the run, and that is the finding: it shows what the agent does today. The injected texts were ignored in these trials. That says nothing about other models or other texts. "Ignored" is read from the audit log: the model asked for no edit other than `pricing.py`, and no step was denied.
 
 An experiment took 6 of its 121 attempts from the recording across the 18 files, about 5 percent. The control took 1 of 5. The control ran in 0.8 seconds, against 8.0 for the live run, because it did not wait for a model or for a dead process's lease.
+
+### After a change to the agent
+
+[examples/fix_tests/gives_up.py](../examples/fix_tests/gives_up.py) is the same agent with one change: when a step fails for good, it returns a summary that names the step and the error instead of raising. The two faults that ended the run were run again against it, from the same source run and the same plan, with a control and three trials each.
+
+| Fault | The first agent | The agent that gives up |
+| --- | --- | --- |
+| `model-down` | Failed with `ConnectionError` in 3 of 3 | Gave up in 3 of 3: `ask_model failed with ConnectionError` |
+| `tests-unavailable` | Failed with `OSError` in 3 of 3 | Gave up in 3 of 3: `run_tests failed with OSError` |
+
+Neither version fixes the tests when the model or pytest is gone, and no version could. What changed is how the run ends: it completes with an answer the caller can read instead of failing. The control followed the recording, and no trial made a model call or cost anything.
+
+Replaying the six failed recordings of the first agent against the new code raises `ReplayDivergedError` for each of them, because the code now returns where the recording says the run failed. That is the free check [docs/faults.md](faults.md#keeping-an-experiment) describes: it says the path changed, and reading the difference says it changed on purpose. [tests/test_sample_experiments.py](../tests/test_sample_experiments.py) runs that replay.
 
 A fault whose target is never called adds almost nothing to a rerun. Measured on the machine used for this page, with a three-attempt run, the median of 300 reruns took 5.11 ms without such a fault and 5.13 ms with it, about 6 microseconds per attempt, which is inside the noise of the measurement.

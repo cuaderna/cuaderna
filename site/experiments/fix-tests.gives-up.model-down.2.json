@@ -1,0 +1,236 @@
+{
+  "format": "cuaderna.run/2",
+  "run": {
+    "run_id": "fix-tests.gives-up.model-down.2",
+    "name": "fix_tests",
+    "input": {
+      "max_rounds": 5,
+      "model": "claude-haiku-5-5",
+      "provider": "anthropic",
+      "repo": "C:\\fix-tests\\repo"
+    },
+    "code_version": null,
+    "status": "completed",
+    "output": {
+      "fixed": false,
+      "rounds": 0,
+      "gave_up": "ask_model failed with ConnectionError"
+    },
+    "error": null,
+    "created_at": "2026-11-20T16:38:52.824756Z",
+    "finished_at": "2026-11-20T16:38:56.176477Z",
+    "seal": "28174b12161387056d5f1f79355401db1ef7f347cbe319794cb4199700f011ed",
+    "experiment": {
+      "source_run_id": "fix-tests",
+      "reuse": [
+        "ask_model"
+      ],
+      "plan_id": "fix-tests-faults-1",
+      "plan_hash": "33956fd8ed1419e8fe0ccd4ee649f23ee95e1f39c4e5d507ad3061dd2eae25a6",
+      "fault_id": "model-down"
+    }
+  },
+  "attempts": [
+    {
+      "step_key": "run_tests#1",
+      "name": "run_tests",
+      "attempt": 1,
+      "status": "ok",
+      "args": {
+        "repo": "C:\\fix-tests\\repo"
+      },
+      "result": {
+        "passed": false,
+        "output": ".F\n================================== FAILURES ===================================\n________________ test_a_discount_is_a_percentage_of_the_amount ________________\n\n    def test_a_discount_is_a_percentage_of_the_amount() -> None:\n>       assert apply_discount(200.0, 10.0) == 180.0\nE       assert 190.0 == 180.0\nE        +  where 190.0 = apply_discount(200.0, 10.0)\n\ntest_pricing.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED test_pricing.py::test_a_discount_is_a_percentage_of_the_amount - asser...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 1 passed\n"
+      },
+      "error": null,
+      "started_at": "2026-11-20T16:38:52.827248Z",
+      "finished_at": "2026-11-20T16:38:53.149112Z",
+      "lease_token": 1,
+      "annotations": {
+        "cuaderna.authorization": {
+          "decision": "allow",
+          "effect": "allow",
+          "reason": "rule",
+          "policy": "fix-tests-2",
+          "policy_hash": "6fc38da6de3a7c4cb8c02a1475c16643734f6f39d526ee9b0de98a410b347963",
+          "rules": [
+            "look"
+          ],
+          "actor": "fix-tests-experiments",
+          "approval": null
+        }
+      },
+      "chain_hash": "ddaf3a468b5ce884c14f7e7124e1e6e60b8684aeaf30687f761ec9df2fbc85bd"
+    },
+    {
+      "step_key": "read_sources#1",
+      "name": "read_sources",
+      "attempt": 1,
+      "status": "ok",
+      "args": {
+        "repo": "C:\\fix-tests\\repo"
+      },
+      "result": {
+        "pricing.py": "def subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price + quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - percent\n"
+      },
+      "error": null,
+      "started_at": "2026-11-20T16:38:53.150648Z",
+      "finished_at": "2026-11-20T16:38:53.151125Z",
+      "lease_token": 1,
+      "annotations": {
+        "cuaderna.authorization": {
+          "decision": "allow",
+          "effect": "allow",
+          "reason": "rule",
+          "policy": "fix-tests-2",
+          "policy_hash": "6fc38da6de3a7c4cb8c02a1475c16643734f6f39d526ee9b0de98a410b347963",
+          "rules": [
+            "look"
+          ],
+          "actor": "fix-tests-experiments",
+          "approval": null
+        }
+      },
+      "chain_hash": "7096d8d9cb472a49a29a5377747cda5a495d44cb0900c7f178148cf0fdbaad64"
+    },
+    {
+      "step_key": "ask_model#1",
+      "name": "ask_model",
+      "attempt": 1,
+      "status": "error",
+      "args": {
+        "model": "claude-haiku-5-5",
+        "provider": "anthropic",
+        "sources": {
+          "pricing.py": "def subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price + quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - percent\n"
+        },
+        "test_output": ".F\n================================== FAILURES ===================================\n________________ test_a_discount_is_a_percentage_of_the_amount ________________\n\n    def test_a_discount_is_a_percentage_of_the_amount() -> None:\n>       assert apply_discount(200.0, 10.0) == 180.0\nE       assert 190.0 == 180.0\nE        +  where 190.0 = apply_discount(200.0, 10.0)\n\ntest_pricing.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED test_pricing.py::test_a_discount_is_a_percentage_of_the_amount - asser...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 1 passed\n"
+      },
+      "result": null,
+      "error": {
+        "type": "ConnectionError",
+        "message": "model unreachable",
+        "traceback": "Traceback (most recent call last):\n  File \"C:\\cuaderna\\src\\cuaderna\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.ConnectionError: model unreachable\n",
+        "terminal": false
+      },
+      "started_at": "2026-11-20T16:38:53.152012Z",
+      "finished_at": "2026-11-20T16:38:53.152395Z",
+      "lease_token": 1,
+      "annotations": {
+        "cuaderna.fault": {
+          "plan_id": "fix-tests-faults-1",
+          "plan_hash": "33956fd8ed1419e8fe0ccd4ee649f23ee95e1f39c4e5d507ad3061dd2eae25a6",
+          "fault_id": "model-down",
+          "kind": "raise",
+          "executed": false
+        },
+        "cuaderna.authorization": {
+          "decision": "allow",
+          "effect": "allow",
+          "reason": "rule",
+          "policy": "fix-tests-2",
+          "policy_hash": "6fc38da6de3a7c4cb8c02a1475c16643734f6f39d526ee9b0de98a410b347963",
+          "rules": [
+            "look"
+          ],
+          "actor": "fix-tests-experiments",
+          "approval": null
+        }
+      },
+      "chain_hash": "35ddfebf777a88af3b3237e1638dc7a781fe9a66206f6ea52c620f71b2225add"
+    },
+    {
+      "step_key": "ask_model#1",
+      "name": "ask_model",
+      "attempt": 2,
+      "status": "error",
+      "args": {
+        "model": "claude-haiku-5-5",
+        "provider": "anthropic",
+        "sources": {
+          "pricing.py": "def subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price + quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - percent\n"
+        },
+        "test_output": ".F\n================================== FAILURES ===================================\n________________ test_a_discount_is_a_percentage_of_the_amount ________________\n\n    def test_a_discount_is_a_percentage_of_the_amount() -> None:\n>       assert apply_discount(200.0, 10.0) == 180.0\nE       assert 190.0 == 180.0\nE        +  where 190.0 = apply_discount(200.0, 10.0)\n\ntest_pricing.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED test_pricing.py::test_a_discount_is_a_percentage_of_the_amount - asser...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 1 passed\n"
+      },
+      "result": null,
+      "error": {
+        "type": "ConnectionError",
+        "message": "model unreachable",
+        "traceback": "Traceback (most recent call last):\n  File \"C:\\cuaderna\\src\\cuaderna\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.ConnectionError: model unreachable\n",
+        "terminal": false
+      },
+      "started_at": "2026-11-20T16:38:54.157990Z",
+      "finished_at": "2026-11-20T16:38:54.159054Z",
+      "lease_token": 1,
+      "annotations": {
+        "cuaderna.fault": {
+          "plan_id": "fix-tests-faults-1",
+          "plan_hash": "33956fd8ed1419e8fe0ccd4ee649f23ee95e1f39c4e5d507ad3061dd2eae25a6",
+          "fault_id": "model-down",
+          "kind": "raise",
+          "executed": false
+        },
+        "cuaderna.authorization": {
+          "decision": "allow",
+          "effect": "allow",
+          "reason": "rule",
+          "policy": "fix-tests-2",
+          "policy_hash": "6fc38da6de3a7c4cb8c02a1475c16643734f6f39d526ee9b0de98a410b347963",
+          "rules": [
+            "look"
+          ],
+          "actor": "fix-tests-experiments",
+          "approval": null
+        }
+      },
+      "chain_hash": "3dcefacb2969832893b0f52a88a07696a41fafa0188f00c66b824d8d17a6baa3"
+    },
+    {
+      "step_key": "ask_model#1",
+      "name": "ask_model",
+      "attempt": 3,
+      "status": "error",
+      "args": {
+        "model": "claude-haiku-5-5",
+        "provider": "anthropic",
+        "sources": {
+          "pricing.py": "def subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price + quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - percent\n"
+        },
+        "test_output": ".F\n================================== FAILURES ===================================\n________________ test_a_discount_is_a_percentage_of_the_amount ________________\n\n    def test_a_discount_is_a_percentage_of_the_amount() -> None:\n>       assert apply_discount(200.0, 10.0) == 180.0\nE       assert 190.0 == 180.0\nE        +  where 190.0 = apply_discount(200.0, 10.0)\n\ntest_pricing.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED test_pricing.py::test_a_discount_is_a_percentage_of_the_amount - asser...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 1 passed\n"
+      },
+      "result": null,
+      "error": {
+        "type": "ConnectionError",
+        "message": "model unreachable",
+        "traceback": "Traceback (most recent call last):\n  File \"C:\\cuaderna\\src\\cuaderna\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.ConnectionError: model unreachable\n",
+        "terminal": false
+      },
+      "started_at": "2026-11-20T16:38:56.174421Z",
+      "finished_at": "2026-11-20T16:38:56.174899Z",
+      "lease_token": 1,
+      "annotations": {
+        "cuaderna.fault": {
+          "plan_id": "fix-tests-faults-1",
+          "plan_hash": "33956fd8ed1419e8fe0ccd4ee649f23ee95e1f39c4e5d507ad3061dd2eae25a6",
+          "fault_id": "model-down",
+          "kind": "raise",
+          "executed": false
+        },
+        "cuaderna.authorization": {
+          "decision": "allow",
+          "effect": "allow",
+          "reason": "rule",
+          "policy": "fix-tests-2",
+          "policy_hash": "6fc38da6de3a7c4cb8c02a1475c16643734f6f39d526ee9b0de98a410b347963",
+          "rules": [
+            "look"
+          ],
+          "actor": "fix-tests-experiments",
+          "approval": null
+        }
+      },
+      "chain_hash": "39219c1982cb8a38476441f44bd57056f8d6d905bcc19ca4e16999cbb78fa203"
+    }
+  ]
+}
