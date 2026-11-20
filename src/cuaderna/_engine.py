@@ -6,7 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from ._audit import AuditEntry, StepDecision, audit_entries, decisions_under
-from ._chain import verified_head
+from ._chain import verified_digest
 from ._cost import RunCost, cost_for_budget, repriced_cost, run_cost
 from ._errors import (
     ApprovalNotPendingError,
@@ -166,7 +166,7 @@ class Engine:
 
     async def verify(self, run_id: str) -> str:
         record = await self.run_record(run_id)
-        return verified_head(run_id, record, await self._storage.load_attempts(run_id))
+        return verified_digest(run_id, record, await self._storage.load_attempts(run_id))
 
     async def evaluate(self, run_id: str, policy: Policy) -> list[StepDecision]:
         return decisions_under(await self.steps(run_id), policy)
