@@ -7,10 +7,14 @@ import pytest
 import cuaderna
 from cuaderna import (
     Engine,
+    ExperimentMarker,
     Fault,
     FaultPlan,
     FaultPlanError,
+    PermissionDeniedError,
+    Policy,
     ReplayDivergedError,
+    RunMismatchError,
     RunStatus,
     StepAttempt,
     StepFailedError,
@@ -28,6 +32,7 @@ class World:
         self.summaries = 0
         self.published: list[str] = []
         self.crash_on_publish = False
+        self.crash_on_fetch = False
 
 
 world = World()
@@ -47,6 +52,8 @@ async def engine(journal_path: Path) -> AsyncIterator[Engine]:
 
 @cuaderna.step(max_attempts=3, backoff_seconds=0)
 async def fetch() -> str:
+    if world.crash_on_fetch:
+        raise Crash
     world.fetches += 1
     return world.report
 
@@ -155,6 +162,19 @@ async def test_a_fault_without_a_limit_fails_the_step_like_a_real_failure(
     assert world.summaries == 1
 
 
+async def test_a_fault_on_a_step_that_is_not_reused_skips_its_function_on_the_failed_attempt(
+    engine: Engine,
+) -> None:
+    fault = fault_at("fetch#1", {"raise": {"type": "Timeout", "message": "slow", "attempts": 1}})
+
+    await inject(engine, fault, [])
+
+    failed, retried = await attempts_of(engine, "fetch#1")
+    assert annotations(failed) == {"cuaderna.fault": fault_annotation(fault, executed=False)}
+    assert annotations(retried) == {}
+    assert world.fetches == 2
+
+
 async def test_a_return_fault_records_its_value_without_running_the_step(
     engine: Engine,
 ) -> None:
@@ -222,3 +242,110 @@ async def test_a_reused_step_with_new_arguments_runs_for_real_only_after_the_fau
         await engine.rerun(
             "source", pipeline, as_run_id="late", reuse=["summarize"], fault=fires_later
         )
+
+
+async def test_a_fault_whose_target_is_never_called_leaves_a_strict_rerun(
+    engine: Engine,
+) -> None:
+    fault = fault_at("publish#2", {"return": "unused"})
+
+    output = await inject(engine, fault, ["summarize"])
+
+    assert output == "summary of report"
+    assert all("cuaderna.fault" not in annotations(a) for a in await engine.steps("experiment"))
+    assert (await engine.run_record("experiment")).status is RunStatus.COMPLETED
+
+
+def policy_for_summaries(effect: str) -> Policy:
+    allow: dict[str, object] = {
+        "id": "rest",
+        "effect": "allow",
+        "steps": ["fetch", "publish"],
+        "when": {},
+    }
+    summaries: dict[str, object] = {
+        "id": "summaries",
+        "effect": effect,
+        "steps": ["summarize"],
+        "when": {},
+    }
+    return Policy({"format": "cuaderna.policy/1", "id": "p", "rules": [allow, summaries]})
+
+
+async def test_a_denied_call_is_not_faulted(engine: Engine) -> None:
+    await engine.execute("source", pipeline.with_policy(policy_for_summaries("allow")), False)
+
+    with pytest.raises(PermissionDeniedError):
+        await engine.rerun(
+            "source",
+            pipeline.with_policy(policy_for_summaries("deny")),
+            as_run_id="experiment",
+            reuse=["summarize"],
+            fault=timeout(attempts=1),
+        )
+
+    [denied] = await attempts_of(engine, "summarize#1")
+    assert "cuaderna.fault" not in annotations(denied)
+
+
+@pytest.mark.parametrize(
+    ("fault", "summarize_attempts"), [(timeout(attempts=1), 2), (returning("forced"), 1)]
+)
+async def test_a_killed_experiment_resumes_without_injecting_twice(
+    engine: Engine, fault: Fault, summarize_attempts: int
+) -> None:
+    await engine.execute("source", pipeline, False)
+    world.crash_on_publish = True
+    with pytest.raises(Crash):
+        await engine.rerun(
+            "source", pipeline, as_run_id="experiment", reuse=["summarize"], fault=fault
+        )
+    world.crash_on_publish = False
+
+    await engine.rerun("source", pipeline, as_run_id="experiment", reuse=["summarize"], fault=fault)
+
+    made = await attempts_of(engine, "summarize#1")
+    assert len(made) == summarize_attempts
+    assert sum("cuaderna.fault" in annotations(attempt) for attempt in made) == 1
+    assert (await engine.run_record("experiment")).status is RunStatus.COMPLETED
+
+
+async def test_the_marker_names_the_plan_and_another_fault_is_another_experiment(
+    engine: Engine,
+) -> None:
+    fault = timeout(attempts=1)
+    await inject(engine, fault, ["summarize"])
+
+    marker = (await engine.run_record("experiment")).experiment
+    assert marker == ExperimentMarker(
+        "source",
+        ("summarize",),
+        plan_id="plan",
+        plan_hash=fault.plan_hash,
+        fault_id="f1",
+    )
+    with pytest.raises(RunMismatchError):
+        await engine.rerun(
+            "source",
+            pipeline,
+            as_run_id="experiment",
+            reuse=["summarize"],
+            fault=returning("forced"),
+        )
+
+
+async def test_an_experiment_killed_before_the_retry_of_an_injected_attempt_resumes_at_the_retry(
+    engine: Engine,
+) -> None:
+    fault = fault_at("fetch#1", {"raise": {"type": "Timeout", "message": "slow", "attempts": 1}})
+    await engine.execute("source", pipeline, False)
+    world.crash_on_fetch = True
+    with pytest.raises(Crash):
+        await engine.rerun("source", pipeline, as_run_id="experiment", reuse=[], fault=fault)
+    world.crash_on_fetch = False
+
+    await engine.rerun("source", pipeline, as_run_id="experiment", reuse=[], fault=fault)
+
+    failed, retried = await attempts_of(engine, "fetch#1")
+    assert "cuaderna.fault" in annotations(failed)
+    assert (retried.attempt, annotations(retried)) == (2, {})
