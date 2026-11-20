@@ -14,7 +14,7 @@ It opens on [site/sample-run.json](../site/sample-run.json), a real run of [exam
 - The second one, with the same budget, took the run over 4.7 seconds later, made the model call again and recorded it at 0.0001774 USD. That is over the budget, so its next step call raised `BudgetExceededError` and the run stayed unfinished. The run went 0.0001274 USD past its ceiling, the cost of the one call in flight when it was crossed.
 - The third one was given 0.01 USD and finished the run with two more attempts. The model call was not made again.
 
-The run was recorded under the policy in [examples/fix_tests/policy.json](../examples/fix_tests/policy.json). Its five step calls were all allowed, four by the rule `look` and the edit by `edit-package`; none needed a person and none was denied. The file was exported with local paths hidden, so its hash chain [does not verify](permissions.md#checking-the-journal-with-verify): the hashes cover the values as they were recorded.
+The run was recorded under an earlier version of the policy in [examples/fix_tests/policy.json](../examples/fix_tests/policy.json), whose rule `edit-package` allowed an edit of any file under the repo root; the policy now allows an edit of `pricing.py` only. Its five step calls were all allowed, four by the rule `look` and the edit by `edit-package`; none needed a person and none was denied. The file was exported with local paths hidden, so its hash chain [does not verify](permissions.md#checking-the-journal-with-verify): the hashes cover the values as they were recorded.
 
 `engine.reprice` puts the same tokens on `claude-opus-5-5` at 0.007096 USD, 40 times what the run cost. The budgets are not in the file: a budget belongs to the call to `execute`, not to the journal.
 

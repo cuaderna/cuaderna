@@ -3,11 +3,12 @@ import asyncio
 import getpass
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import urllib.request
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -24,6 +25,27 @@ _EDIT_TOOL = "write_file"
 _PRICES = Path(__file__).parent / "prices.json"
 _POLICY = Path(__file__).parent / "policy.json"
 _LEASE_SECONDS = 5.0
+_API_KEY_NAME = "ANTHROPIC_API_KEY"
+_API_KEY_SHAPE = re.compile(r"[\x21-\x7e]+")
+_TEST_ENVIRONMENT_NAMES = frozenset(
+    {
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "SYSTEMDRIVE",
+        "WINDIR",
+        "COMSPEC",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "HOME",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LANG",
+        "LC_ALL",
+    }
+)
 _PUBLISHED_WORKDIR = "/tmp/fix-tests"
 _INSTRUCTIONS = (
     "You fix failing Python tests. You get the source files and the pytest output. "
@@ -47,12 +69,30 @@ class Summary(BaseModel):
     rounds: int
 
 
+def _test_environment(environment: Mapping[str, str]) -> dict[str, str]:
+    return {
+        name: value
+        for name, value in environment.items()
+        if name.upper() in _TEST_ENVIRONMENT_NAMES
+    }
+
+
+def _read_api_key(environment: Mapping[str, str]) -> str:
+    key = environment.get(_API_KEY_NAME, "").strip()
+    if _API_KEY_SHAPE.fullmatch(key) is None:
+        raise SystemExit(
+            f"{_API_KEY_NAME} must be set, and hold only printable characters without spaces"
+        )
+    return key
+
+
 @cuaderna.step
 def run_tests(repo: str) -> TestReport:
     print("  running the tests")
     completed = subprocess.run(
         [sys.executable, "-m", "pytest", "-x", "-q", "--no-header", "-p", "no:cacheprovider"],
         cwd=repo,
+        env=_test_environment(os.environ),
         capture_output=True,
         encoding="utf-8",
         errors="replace",
@@ -115,7 +155,7 @@ def _ask_anthropic(model: str, instructions: str, prompt: str) -> FileEdit:
     }
     headers = {
         "anthropic-version": "2023-06-01",
-        "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+        "x-api-key": os.environ[_API_KEY_NAME],
     }
     reply = _post_json(_ANTHROPIC_URL, headers, body)
     cuaderna.annotate(cuaderna.usage.from_anthropic(reply, requested_model=model))
@@ -178,8 +218,8 @@ class _Options:
 
 
 async def _main(options: _Options) -> None:
-    if options.provider == "anthropic" and "ANTHROPIC_API_KEY" not in os.environ:
-        raise SystemExit("set ANTHROPIC_API_KEY to use --provider anthropic")
+    if options.provider == "anthropic":
+        os.environ[_API_KEY_NAME] = _read_api_key(os.environ)
     repo = options.workdir / "repo"
     if not repo.exists():
         shutil.copytree(_SAMPLE, repo)
