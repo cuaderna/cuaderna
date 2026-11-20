@@ -4,6 +4,7 @@ from cuaderna._records import (
     Approval,
     ApprovalAnswer,
     ApprovalRequest,
+    ExperimentMarker,
     Lease,
     RunRecord,
     StepAttempt,
@@ -12,7 +13,12 @@ from cuaderna._records import (
 
 class Storage(Protocol):
     async def create_run(
-        self, run_id: str, name: str, input_json: str, code_version: str | None
+        self,
+        run_id: str,
+        name: str,
+        input_json: str,
+        code_version: str | None,
+        experiment: ExperimentMarker | None = None,
     ) -> RunRecord: ...
 
     async def claim_run(self, run_id: str, owner: str, lease_seconds: float) -> Lease | None: ...

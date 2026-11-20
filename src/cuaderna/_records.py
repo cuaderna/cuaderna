@@ -1,6 +1,9 @@
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+
+from ._serde import canonical_json
 
 
 class RunStatus(StrEnum):
@@ -16,6 +19,37 @@ class AttemptStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class ExperimentMarker:
+    source_run_id: str
+    reuse: tuple[str, ...]
+    plan_id: str | None = None
+    plan_hash: str | None = None
+    fault_id: str | None = None
+
+    def to_json(self) -> str:
+        return canonical_json(
+            {
+                "source_run_id": self.source_run_id,
+                "plan_id": self.plan_id,
+                "plan_hash": self.plan_hash,
+                "fault_id": self.fault_id,
+                "reuse": list(self.reuse),
+            }
+        )
+
+    @classmethod
+    def from_json(cls, text: str) -> "ExperimentMarker":
+        document = json.loads(text)
+        return cls(
+            source_run_id=document["source_run_id"],
+            reuse=tuple(document["reuse"]),
+            plan_id=document["plan_id"],
+            plan_hash=document["plan_hash"],
+            fault_id=document["fault_id"],
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class RunRecord:
     run_id: str
     name: str
@@ -28,6 +62,7 @@ class RunRecord:
     finished_at: datetime | None
     seal: str | None = None
     imported_at: datetime | None = None
+    experiment: ExperimentMarker | None = None
 
 
 @dataclass(frozen=True, slots=True)
