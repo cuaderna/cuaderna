@@ -18,6 +18,8 @@ _LONGEST_RETRY_DELAY_SECONDS = 60.0
 
 _RESERVED_PREFIX = "cuaderna."
 
+STEP_NAME_ATTRIBUTE = "step_name"
+
 _ANNOTATIONS = TypeAdapter(dict[str, JsonValue])
 
 
@@ -25,6 +27,7 @@ _ANNOTATIONS = TypeAdapter(dict[str, JsonValue])
 class ActiveStep:
     idempotency_key: str
     annotations: dict[str, JsonValue] = field(default_factory=dict[str, JsonValue])
+    library_annotations: dict[str, JsonValue] = field(default_factory=dict[str, JsonValue])
 
 
 active_step: ContextVar[ActiveStep | None] = ContextVar("cuaderna_active_step", default=None)
@@ -86,6 +89,13 @@ def annotate(annotations: Mapping[str, JsonValue]) -> None:
     running.annotations.update(_ANNOTATIONS.validate_python(dict(annotations)))
 
 
+def annotate_as_library(annotations: Mapping[str, JsonValue]) -> None:
+    running = active_step.get()
+    if running is None:
+        raise StepCallError("annotate_as_library was called outside a step")
+    running.library_annotations.update(annotations)
+
+
 def library_step[**P, R](
     name: str,
 ) -> Callable[[_AsyncFunction[P, R]], _AsyncFunction[P, R]]:
@@ -135,6 +145,7 @@ def _define(
         step_key = context.step_keys.reserve(step_name)
         return context.execute_step(definition, step_key, args, kwargs)
 
+    setattr(call, STEP_NAME_ATTRIBUTE, step_name)
     return call
 
 

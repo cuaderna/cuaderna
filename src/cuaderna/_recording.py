@@ -10,10 +10,11 @@ from pydantic import JsonValue
 from ._authorization import (
     authorization_annotation,
     denial_message,
+    recorded_annotations,
     recorded_failure,
     with_authorization,
 )
-from ._cost import AttemptCost, run_cost, with_cost
+from ._cost import AttemptCost, run_cost
 from ._errors import (
     ApprovalRequiredError,
     BudgetExceededError,
@@ -127,7 +128,7 @@ class RecordingContext:
                     attempt,
                     args_json,
                     started_at,
-                    with_authorization(with_cost(running.annotations, self.prices), authorization),
+                    recorded_annotations(running, self.prices, authorization),
                     error_json=json.dumps(details),
                 )
                 await self._record(failed)
@@ -141,7 +142,7 @@ class RecordingContext:
                     attempt,
                     args_json,
                     started_at,
-                    with_authorization(with_cost(running.annotations, self.prices), authorization),
+                    recorded_annotations(running, self.prices, authorization),
                     result_json=result_json,
                 )
                 await self._record(succeeded)

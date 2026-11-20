@@ -2,13 +2,18 @@ import json
 
 from pydantic import JsonValue
 
+from ._cost import with_cost
 from ._errors import PermissionDeniedError, StepFailedError
 from ._policy import Decision, Policy
+from ._prices import PriceTable
 from ._records import ApprovalAnswer, StepAttempt
 from ._serde import ErrorDetails
-from ._step import step_failed
+from ._step import ActiveStep, step_failed
 
 AUTHORIZATION_KEY = "cuaderna.authorization"
+REUSE_KEY = "cuaderna.reuse"
+FAULT_KEY = "cuaderna.fault"
+_LIBRARY_KEYS = frozenset({REUSE_KEY, FAULT_KEY})
 
 
 def authorization_annotation(
@@ -41,6 +46,15 @@ def with_authorization(
     if authorization is None:
         return kept
     return {**kept, AUTHORIZATION_KEY: authorization}
+
+
+def recorded_annotations(
+    running: ActiveStep, prices: PriceTable | None, authorization: dict[str, JsonValue] | None
+) -> dict[str, JsonValue]:
+    own = {key: value for key, value in running.annotations.items() if key not in _LIBRARY_KEYS}
+    return with_authorization(
+        with_cost({**own, **running.library_annotations}, prices), authorization
+    )
 
 
 def denial_message(step_key: str, decision: Decision) -> str:
