@@ -26,6 +26,7 @@ from ._errors import (
     RunMismatchError,
     RunNotAvailableError,
     RunNotFoundError,
+    StepLimitExceededError,
     StepMismatchError,
 )
 from ._files import read_text_within
@@ -68,10 +69,14 @@ class Engine:
         claim_timeout_seconds: float | None = None,
         prices: PriceTable | None = None,
         actor: str | None = None,
+        max_steps: int | None = None,
     ) -> None:
+        if max_steps is not None and (isinstance(max_steps, bool) or max_steps < 1):
+            raise InvalidDefinitionError(f"max_steps must be a positive integer, not {max_steps!r}")
         self._storage: Storage = SqliteStorage(path)
         self._prices = prices
         self._actor = actor
+        self._max_steps = max_steps
         self._owner = uuid4().hex
         self._lease_seconds = lease_seconds
         self._claim_timeout_seconds = claim_timeout_seconds
@@ -306,6 +311,8 @@ class Engine:
             recorded,
             self._prices,
             budget,
+            self._max_steps,
+            len(attempts),
             run.policy,
             self._actor,
             answers=answers,
@@ -316,7 +323,13 @@ class Engine:
             output_json = run.codec.dump_result(output)
         except (LeaseLostError, JournalBusyError):
             raise
-        except (StepMismatchError, BudgetExceededError, CostUnknownError, ApprovalRequiredError):
+        except (
+            StepMismatchError,
+            BudgetExceededError,
+            CostUnknownError,
+            ApprovalRequiredError,
+            StepLimitExceededError,
+        ):
             await self._storage.release_run(lease)
             raise
         except Exception as error:

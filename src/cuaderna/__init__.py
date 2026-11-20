@@ -26,6 +26,7 @@ from ._errors import (
     SchemaVersionError,
     StepCallError,
     StepFailedError,
+    StepLimitExceededError,
     StepMismatchError,
     TerminalError,
 )
@@ -73,6 +74,7 @@ __all__ = [
     "StepCallError",
     "StepDecision",
     "StepFailedError",
+    "StepLimitExceededError",
     "StepMismatchError",
     "TerminalError",
     "annotate",
