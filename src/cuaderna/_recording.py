@@ -21,7 +21,6 @@ from ._errors import (
     PermissionDeniedError,
     StepMismatchError,
 )
-from ._library import LIBRARY_STEPS
 from ._policy import Decision, Policy
 from ._prices import PriceTable
 from ._records import ApprovalAnswer, ApprovalRequest, AttemptStatus, Lease, StepAttempt
@@ -82,6 +81,7 @@ class RecordingContext:
             raise self.stopped
         args_json = definition.codec.dump_arguments(args, kwargs)
         first_attempt = 1
+        as_recorded = definition.codec.copy_arguments(args, kwargs)
         recorded = self.recorded.get(step_key)
         if recorded is not None:
             if recorded.args_hash != hash_arguments(args_json):
@@ -106,7 +106,10 @@ class RecordingContext:
             running = ActiveStep(f"{self.lease.run_id}:{step_key}")
             token = active_step.set(running)
             try:
-                result_json = definition.codec.dump_result(await definition.invoke(*args, **kwargs))
+                fresh = definition.codec.copy_arguments(as_recorded.args, as_recorded.kwargs)
+                result_json = definition.codec.dump_result(
+                    await definition.invoke(*fresh.args, **fresh.kwargs)
+                )
             except Exception as error:
                 details = describe_error(error)
                 failed = _attempt(
@@ -141,7 +144,7 @@ class RecordingContext:
     async def _authorize(
         self, definition: StepDefinition, step_key: str, attempt: int, args_json: str
     ) -> dict[str, JsonValue] | None:
-        if self.policy is None or definition.name in LIBRARY_STEPS:
+        if self.policy is None or definition.is_library:
             return None
         decision = self.policy.decide(definition.name, args_json)
         if decision.effect == "ask":

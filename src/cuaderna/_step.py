@@ -16,6 +16,8 @@ type _AsyncFunction[**P, R] = Callable[P, Coroutine[Any, Any, R]]
 
 _LONGEST_RETRY_DELAY_SECONDS = 60.0
 
+_RESERVED_PREFIX = "cuaderna."
+
 _ANNOTATIONS = TypeAdapter(dict[str, JsonValue])
 
 
@@ -84,10 +86,28 @@ def annotate(annotations: Mapping[str, JsonValue]) -> None:
     running.annotations.update(_ANNOTATIONS.validate_python(dict(annotations)))
 
 
+def library_step[**P, R](
+    name: str,
+) -> Callable[[_AsyncFunction[P, R]], _AsyncFunction[P, R]]:
+    def decorate(function: _AsyncFunction[P, R]) -> _AsyncFunction[P, R]:
+        return _define(function, name=name, max_attempts=1, backoff_seconds=1.0, is_library=True)
+
+    return decorate
+
+
 def _define(
-    function: Callable[..., Any], *, name: str | None, max_attempts: int, backoff_seconds: float
+    function: Callable[..., Any],
+    *,
+    name: str | None,
+    max_attempts: int,
+    backoff_seconds: float,
+    is_library: bool = False,
 ) -> _AsyncFunction[..., Any]:
     step_name = name or _default_name(function)
+    if step_name.startswith(_RESERVED_PREFIX) and not is_library:
+        raise InvalidDefinitionError(
+            f"{step_name}: step names starting with 'cuaderna.' are reserved"
+        )
     if ":" in step_name or "#" in step_name:
         raise InvalidDefinitionError(f"{step_name}: a step name cannot contain ':' or '#'")
     if max_attempts < 1:
@@ -97,7 +117,12 @@ def _define(
     else:
         invoke = functools.partial(asyncio.to_thread, function)
     definition = StepDefinition(
-        step_name, invoke, build_codec(function, step_name), max_attempts, backoff_seconds
+        step_name,
+        invoke,
+        build_codec(function, step_name),
+        max_attempts,
+        backoff_seconds,
+        is_library,
     )
 
     @functools.wraps(function)

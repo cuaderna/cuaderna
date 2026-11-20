@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 import cuaderna
-from cuaderna import Engine, StepCallError
+from cuaderna import Engine, InvalidDefinitionError, StepCallError
 
 
 class Crash(BaseException):
@@ -73,6 +73,16 @@ async def test_a_resumed_run_sees_the_same_values(journal_path: Path) -> None:
     await second.close()
 
     assert seen == [resumed, resumed]
+
+
+async def test_a_user_step_cannot_take_a_library_name() -> None:
+    async def impostor() -> str:
+        return "written"
+
+    with pytest.raises(InvalidDefinitionError):
+        cuaderna.step(name="cuaderna.now")(impostor)
+    with pytest.raises(InvalidDefinitionError):
+        cuaderna.step(name="cuaderna.anything")(impostor)
 
 
 async def test_library_steps_need_a_run() -> None:
