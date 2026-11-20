@@ -1,5 +1,6 @@
 from . import usage
 from ._audit import AuditEntry, StepDecision
+from ._compare import FaultChange, TrialCounts, compare_experiments
 from ._cost import AttemptCost, RunCost
 from ._engine import Engine
 from ._errors import (
@@ -8,6 +9,7 @@ from ._errors import (
     BudgetExceededError,
     CostUnknownError,
     CuadernaError,
+    ExperimentMismatchError,
     FaultPlanError,
     InvalidDefinitionError,
     JournalBusyError,
@@ -61,7 +63,9 @@ __all__ = [
     "Engine",
     "Experiment",
     "ExperimentMarker",
+    "ExperimentMismatchError",
     "Fault",
+    "FaultChange",
     "FaultPlan",
     "FaultPlanError",
     "InvalidDefinitionError",
@@ -92,7 +96,9 @@ __all__ = [
     "StepLimitExceededError",
     "StepMismatchError",
     "TerminalError",
+    "TrialCounts",
     "annotate",
+    "compare_experiments",
     "idempotency_key",
     "new_id",
     "now",

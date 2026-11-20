@@ -109,6 +109,18 @@ experiment.status, experiment.error_type, experiment.cost_usd
 
 An unknown run raises `RunNotFoundError`, and a run that is not an experiment raises `RunNotAvailableError`. Each entry of `engine.audit(run_id)` has `injected`, the fault id or `None`, and `reused`, a boolean.
 
+## Comparing two runs of a plan
+
+```python
+changes = compare_experiments(before, after)
+```
+
+`compare_experiments(before, after)` takes two collections of `Experiment`, usually the trials of the same plan against the agent before a change and after it, and returns one `FaultChange` per fault seen on either side, in first-seen order. A `FaultChange` has `fault` (`None` for the control), `before` and `after`, each a `TrialCounts`: `trials`, `outcomes` (a label and how many trials ended that way), `diverged` (trials that left the source), the summed `executed` and `reused`, and the summed `cost_usd` and `unknown_cost_attempts`. A fault that is on one side only has zero counts on the other. The default label is `completed`, `failed with <error type>` or the status of the run, and `outcome=` takes a function from an `Experiment` to your own label. It counts and nothing else: there is no verdict, and reading the numbers is left to you.
+
+Every experiment with a fault must come from the same plan with the same plan hash, on both sides. Otherwise it raises `ExperimentMismatchError`, because the experiments are no longer the same experiments and the counts would not be comparable. Controls have no plan and are always accepted. The same run twice on one side raises it too, since that trial would be counted twice. The source run may differ between the two sides, and so may the code of the agent: that is what you are comparing.
+
+How many trials you need depends on what you want to see. With a one-sided Fisher exact test, the chance of a split at least this lopsided if nothing had changed, 3 trials of 3 against 2 of 3 is 0.5, against 1 of 3 is 0.2 and against 0 of 3 is 0.05. With 5 trials, 5 of 5 against 0 of 5 is 0.004, and with 10 trials, 10 of 10 against 5 of 10 is 0.016. One trial in three is noise. Three trials show the mechanism, and you should only flag a full flip. A fault after which no model is called, such as a step that keeps failing, is deterministic, so one trial is enough there and any change is real.
+
 ## Keeping an experiment
 
 An experiment is exported with `engine.export_run` like any run. The marker is part of the hash chain, so `verify` finds a marker that was changed, and it is part of the file. A run file with an experiment has the format `cuaderna.run/2`, which version 0.1.0 refuses. Ordinary runs are still `cuaderna.run/1`. An imported experiment is still an experiment.
