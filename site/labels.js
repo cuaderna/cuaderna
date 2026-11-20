@@ -14,6 +14,10 @@
   const TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
   const AUTHORIZATION_REASONS = ["rule", "no_rule", "unevaluable", "rejected"];
   const FAULT_KINDS = ["raise", "return", "append"];
+  const SAMPLE_RUN_GROUP = "Sample run";
+  const MAX_ERROR_MESSAGE_LENGTH = 200;
+  const MAX_OUTCOME_FIELDS = 6;
+  const MAX_OUTCOME_VALUE_LENGTH = 40;
   const MAX_INDEX_ENTRIES = 200;
   const MAX_INDEX_TEXT_LENGTH = 200;
   const INDEX_KINDS = ["source", "control", "experiment"];
@@ -125,6 +129,100 @@
     }
     return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
   }
+
+  function timeText(time) {
+    if (time === "") {
+      return "not finished";
+    }
+    if (typeof time !== "string" || !TIME_PATTERN.test(time) || !Number.isFinite(Date.parse(time))) {
+      return "invalid time";
+    }
+    const iso = new Date(time).toISOString();
+    return `${iso.slice(0, 10)} ${iso.slice(11, 19)} UTC`;
+  }
+
+  function retryText(attemptNumber) {
+    if (!Number.isInteger(attemptNumber) || attemptNumber < 2) {
+      return null;
+    }
+    return `retry ${attemptNumber - 1}`;
+  }
+
+  function scalarText(value) {
+    if (typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) {
+      return String(value);
+    }
+    if (typeof value === "string" && value.length <= MAX_OUTCOME_VALUE_LENGTH) {
+      return value;
+    }
+    return null;
+  }
+
+  function failureText(error) {
+    if (error === null || typeof error !== "object" || typeof error.message !== "string") {
+      return "failed";
+    }
+    const message = error.message.replace(/\s+/g, " ").trim();
+    if (message === "") {
+      return "failed";
+    }
+    if (message.length > MAX_ERROR_MESSAGE_LENGTH) {
+      return `failed: ${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}...`;
+    }
+    return `failed: ${message}`;
+  }
+
+  function outcomeText(run) {
+    if (run.status === "failed") {
+      return failureText(run.error);
+    }
+    const status = statusLabel(run.status);
+    const output = run.output;
+    const hasFields = output !== null && typeof output === "object" && !Array.isArray(output);
+    if (run.status !== "completed" || !hasFields) {
+      return status;
+    }
+    const fields = Object.entries(output)
+      .filter(([name]) => name.length <= MAX_OUTCOME_VALUE_LENGTH)
+      .map(([name, value]) => [name, scalarText(value)])
+      .filter(([, value]) => value !== null)
+      .slice(0, MAX_OUTCOME_FIELDS)
+      .map(([name, value]) => `${name}: ${value}`);
+    if (fields.length === 0) {
+      return status;
+    }
+    return `${status} (${fields.join(", ")})`;
+  }
+
+  function stepsText(attempts) {
+    const steps = new Set(attempts.map((attempt) => attempt.step_key)).size;
+    const retried = attempts.length - steps;
+    let noun = "steps";
+    if (steps === 1) {
+      noun = "step";
+    }
+    if (retried === 0) {
+      return `${steps} ${noun}`;
+    }
+    return `${steps} ${noun}, ${retried} of them retried`;
+  }
+
+  function takeoverText(processNumber, gap) {
+    if (gap === "invalid time") {
+      return `Process ${processNumber} took over at a recorded time that is invalid`;
+    }
+    return `Process ${processNumber} took over ${gap} later`;
+  }
+
+  function handoverText(processNumber, stoppedAfterStep, gap) {
+    return (
+      `Process ${processNumber - 1} stopped after ${stoppedAfterStep}. ` +
+      `${takeoverText(processNumber, gap)} and continued from the journal.`
+    );
+  }
+
+  const UNRECORDED_STEP_SENTENCE =
+    "If a step was running when a process stopped, it left no record and ran again.";
 
   function hasTextFields(record, names) {
     return (
@@ -439,14 +537,14 @@
 
   function choiceLabel(entry) {
     if (entry.kind === "source") {
-      return "what was recorded";
+      return "The sample run, as recorded";
     }
     if (entry.kind === "control") {
-      return "replayed with nothing changed";
+      return "Control: replayed with nothing changed";
     }
-    let label = entry.fault ?? "experiment";
+    let label = "experiment";
     if (entry.trial !== null) {
-      label += `, trial ${entry.trial}`;
+      label = `trial ${entry.trial}`;
     }
     label += `: ${entry.ended}`;
     if (entry.outcome !== null) {
@@ -455,17 +553,29 @@
     return label;
   }
 
+  function choiceGroup(entry) {
+    if (entry.kind === "experiment") {
+      return entry.fault ?? "Experiments";
+    }
+    return SAMPLE_RUN_GROUP;
+  }
+
   function pickerChoices(entries) {
     return entries
       .map((entry, position) => ({ entry, position }))
       .sort(compareChoices)
-      .map(({ entry }) => ({ file: entry.file, label: choiceLabel(entry) }));
+      .map(({ entry }) => ({
+        file: entry.file,
+        group: choiceGroup(entry),
+        label: choiceLabel(entry),
+      }));
   }
 
   globalThis.cuadernaLabels = {
     AMOUNT_PATTERN,
     COST_PART_LABELS,
     MAX_VALUE_DEPTH,
+    UNRECORDED_STEP_SENTENCE,
     attemptMarks,
     authorizationLabel,
     chainText,
@@ -475,16 +585,22 @@
     experimentFacts,
     experimentLine,
     fileSizeProblem,
+    handoverText,
     isAmount,
+    outcomeText,
     parseRunFile,
     parseRunIndex,
     pickerChoices,
     recordedAuthorization,
     recordedFault,
     recordedReuse,
+    retryText,
     statusClass,
     statusLabel,
+    stepsText,
     sumOfAmounts,
+    takeoverText,
+    timeText,
     validSeconds,
   };
 })();
