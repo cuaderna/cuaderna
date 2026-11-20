@@ -35,7 +35,7 @@ def _write_args(path: str) -> str:
 
 def _options(workdir: Path) -> agent._Options:  # pyright: ignore[reportPrivateUsage]
     return agent._Options(  # pyright: ignore[reportPrivateUsage]
-        "run", workdir, "anthropic", "claude-haiku-5-5", 3, None, None, "actor", "approver"
+        "run", workdir, "anthropic", "claude-haiku-5-5", 3, None, None, False, "actor", "approver"
     )
 
 
@@ -183,3 +183,49 @@ async def test_the_key_is_in_no_recorded_attempt_of_a_run(
     assert [attempt.step_key for attempt in attempts][-1] == "run_tests#2"
     for attempt in attempts:
         assert _KEY not in repr(attempt)
+
+
+async def _export(workdir: Path, keep_paths: bool) -> Path:
+    exported = workdir / "run.json"
+    options = agent._Options(  # pyright: ignore[reportPrivateUsage]
+        "run",
+        workdir,
+        "anthropic",
+        "claude-haiku-5-5",
+        3,
+        None,
+        exported,
+        keep_paths,
+        "actor",
+        "approver",
+    )
+    await agent._main(options)  # pyright: ignore[reportPrivateUsage]
+    return exported
+
+
+async def test_an_export_that_keeps_the_paths_verifies_after_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", _KEY)
+    monkeypatch.setattr(agent, "_post_json", _fake_model([]))
+    exported = await _export(tmp_path, keep_paths=True)
+
+    engine = Engine(tmp_path / "other.db")
+    try:
+        run_id = await engine.import_run(exported, as_run_id="imported")
+        await engine.verify(run_id)
+    finally:
+        await engine.close()
+
+    assert json.dumps(str(tmp_path))[1:-1] in exported.read_text(encoding="utf-8")
+
+
+async def test_the_default_export_hides_the_work_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", _KEY)
+    monkeypatch.setattr(agent, "_post_json", _fake_model([]))
+
+    exported = await _export(tmp_path, keep_paths=False)
+
+    assert json.dumps(str(tmp_path))[1:-1] not in exported.read_text(encoding="utf-8")

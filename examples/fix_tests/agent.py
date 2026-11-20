@@ -216,6 +216,7 @@ class _Options:
     max_rounds: int
     budget: str | None
     export: Path | None
+    keep_paths: bool
     actor: str
     approver: str
 
@@ -242,9 +243,8 @@ async def _main(options: _Options) -> None:
             ),
         )
         if options.export is not None:
-            await engine.export_run(
-                options.run_id, options.export, redact=partial(hide_local_paths, options.workdir)
-            )
+            redact = None if options.keep_paths else partial(hide_local_paths, options.workdir)
+            await engine.export_run(options.run_id, options.export, redact=redact)
         cost = await engine.cost(options.run_id)
     except (cuaderna.BudgetExceededError, cuaderna.CostUnknownError) as error:
         print(f"stopped: {error}")
@@ -300,6 +300,14 @@ if __name__ == "__main__":
     parser.add_argument("--max-rounds", type=int, default=5)
     parser.add_argument("--budget", help="stop the run when it has spent this many USD")
     parser.add_argument("--export", type=Path, help="write the finished run to this file")
+    parser.add_argument(
+        "--keep-paths",
+        action="store_true",
+        help=(
+            "export the values as recorded, so verify can check the file; "
+            "only where the paths are public"
+        ),
+    )
     parser.add_argument("--actor", default="fix-tests-example", help="who the run is recorded as")
     parser.add_argument(
         "--approver", default=getpass.getuser(), help="who answers the approval requests"
@@ -315,6 +323,7 @@ if __name__ == "__main__":
                 arguments.max_rounds,
                 arguments.budget,
                 arguments.export,
+                arguments.keep_paths,
                 arguments.actor,
                 arguments.approver,
             )
