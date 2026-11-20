@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from cuaderna import (
     Policy,
     RunNotAvailableError,
     RunNotFoundError,
+    RunStatus,
 )
 
 
@@ -22,6 +24,17 @@ class World:
 
 
 world = World()
+
+PRICES = cuaderna.PriceTable(
+    {
+        "format": "cuaderna.prices/1",
+        "id": "2026-11-19",
+        "currency": "USD",
+        "models": [
+            {"provider": "anthropic", "names": ["small"], "rates": {"input": "1", "output": "5"}}
+        ],
+    }
+)
 
 
 @pytest.fixture(autouse=True)
@@ -63,6 +76,24 @@ async def pipeline() -> str:
     text = await fetch()
     summary = await summarize(text)
     return await publish(summary)
+
+
+@cuaderna.step
+async def ask() -> str:
+    cuaderna.annotate(
+        {
+            "gen_ai.provider.name": "anthropic",
+            "gen_ai.request.model": "small",
+            "gen_ai.usage.input_tokens": 1_000,
+            "gen_ai.usage.output_tokens": 200,
+        }
+    )
+    return "answer"
+
+
+@cuaderna.run
+async def asking() -> str:
+    return await ask()
 
 
 @cuaderna.run
@@ -121,6 +152,10 @@ async def test_a_control_reports_what_it_served_and_what_it_executed(engine: Eng
         reused=1,
         executed=2,
         diverged_at=None,
+        status=RunStatus.COMPLETED,
+        error_type=None,
+        cost_usd=Decimal(0),
+        unknown_cost_attempts=0,
     )
 
 
@@ -189,6 +224,33 @@ async def test_a_fault_at_a_step_name_lists_each_call_once_in_order(engine: Engi
     await engine.rerun("source", twice, as_run_id="experiment", reuse=["summarize"], fault=fault)
 
     assert (await engine.experiment("experiment")).fired == ("summarize#1", "summarize#2")
+
+
+async def test_an_experiment_says_what_its_model_calls_cost(journal_path: Path) -> None:
+    engine = Engine(journal_path, prices=PRICES)
+    try:
+        await engine.execute("source", asking)
+        await engine.rerun("source", asking, as_run_id="experiment", reuse=[])
+        found = await engine.experiment("experiment")
+    finally:
+        await engine.close()
+
+    assert (found.status, found.error_type) == (RunStatus.COMPLETED, None)
+    assert (found.cost_usd, found.unknown_cost_attempts) == (Decimal("0.002"), 0)
+
+
+async def test_an_experiment_that_failed_says_how(engine: Engine) -> None:
+    await engine.execute("source", pipeline)
+    fault = fault_at(
+        "summarize#1", {"raise": {"type": "Timeout", "message": "slow", "attempts": 2}}
+    )
+
+    with pytest.raises(cuaderna.CuadernaError):
+        await engine.rerun("source", pipeline, as_run_id="experiment", reuse=[], fault=fault)
+
+    found = await engine.experiment("experiment")
+    assert (found.status, found.error_type) == (RunStatus.FAILED, "StepFailedError")
+    assert (found.cost_usd, found.unknown_cost_attempts) == (Decimal(0), 0)
 
 
 async def test_only_an_experiment_can_be_read_as_one(engine: Engine) -> None:

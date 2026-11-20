@@ -95,6 +95,7 @@ asyncio.run(main())
 ```python
 experiment = await engine.experiment("trial-1")
 experiment.fault, experiment.fired, experiment.reused, experiment.executed, experiment.diverged_at
+experiment.status, experiment.error_type, experiment.cost_usd
 ```
 
 `engine.experiment(run_id)` returns an `Experiment`, a frozen dataclass with facts only:
@@ -104,6 +105,7 @@ experiment.fault, experiment.fired, experiment.reused, experiment.executed, expe
 - `reused`, the number of attempts served from the recording.
 - `executed`, the number of attempts on which the function of the step ran. A served attempt, an injected attempt that did not run the step and a denied attempt are not counted.
 - `diverged_at`, the step key of the first attempt of a reused step whose function had to run, or `None` when the run followed the source to the end.
+- `status`, how the run ended, `error_type`, the type of the recorded error (`None` when the run has none), `cost_usd`, what its attempts cost, and `unknown_cost_attempts`, how many attempts could not be priced and are not in that sum.
 
 An unknown run raises `RunNotFoundError`, and a run that is not an experiment raises `RunNotAvailableError`. Each entry of `engine.audit(run_id)` has `injected`, the fault id or `None`, and `reused`, a boolean.
 
