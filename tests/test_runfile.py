@@ -189,7 +189,7 @@ async def test_an_edited_run_file_is_imported_as_edited(
 
 @pytest.mark.parametrize(
     "text",
-    ["not json", "{}", '{"format": "cuaderna.run/2", "run": {}, "attempts": []}'],
+    ["not json", "{}", '{"format": "cuaderna.run/3", "run": {}, "attempts": []}'],
 )
 async def test_a_file_that_is_not_a_known_run_file_is_refused(
     engine: Engine, tmp_path: Path, text: str

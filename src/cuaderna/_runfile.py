@@ -4,10 +4,10 @@ from datetime import UTC, datetime
 from math import isfinite
 from typing import Annotated, Literal, Self
 
-from pydantic import AfterValidator, BaseModel, Field, JsonValue, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from ._errors import RunFileError
-from ._records import AttemptStatus, RunRecord, RunStatus, StepAttempt
+from ._records import AttemptStatus, ExperimentMarker, RunRecord, RunStatus, StepAttempt
 from ._serde import canonical_json, hash_arguments
 
 type Redact = Callable[[str, JsonValue], JsonValue]
@@ -26,6 +26,16 @@ def _fits_in_utc(moment: datetime) -> datetime:
 _Moment = Annotated[datetime, AfterValidator(_fits_in_utc)]
 
 
+class _ExperimentSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_run_id: str
+    reuse: list[str]
+    plan_id: str | None
+    plan_hash: str | None
+    fault_id: str | None
+
+
 class _RunSection(BaseModel):
     run_id: str = Field(min_length=1)
     name: str = Field(min_length=1)
@@ -37,6 +47,7 @@ class _RunSection(BaseModel):
     created_at: _Moment
     finished_at: _Moment | None
     seal: str | None = None
+    experiment: _ExperimentSection | None = None
 
 
 class _AttemptSection(BaseModel):
@@ -55,7 +66,7 @@ class _AttemptSection(BaseModel):
 
 
 class _RunFile(BaseModel):
-    format: Literal["cuaderna.run/1"]
+    format: Literal["cuaderna.run/1", "cuaderna.run/2"]
     run: _RunSection
     attempts: list[_AttemptSection]
 
@@ -64,6 +75,12 @@ class _RunFile(BaseModel):
         identities = {(section.step_key, section.attempt) for section in self.attempts}
         if len(identities) != len(self.attempts):
             raise ValueError("two attempts have the same step key and attempt number")
+        return self
+
+    @model_validator(mode="after")
+    def _only_the_second_format_holds_an_experiment(self) -> Self:
+        if self.format == "cuaderna.run/1" and self.run.experiment is not None:
+            raise ValueError("a cuaderna.run/1 file cannot hold an experiment")
         return self
 
 
@@ -76,8 +93,13 @@ def dump_run_file(record: RunRecord, attempts: list[StepAttempt], redact: Redact
             return value
         return redact(path, value)
 
+    file_format: Literal["cuaderna.run/1", "cuaderna.run/2"] = "cuaderna.run/1"
+    left_out: dict[str, set[str]] = {"run": {"experiment"}}
+    if record.experiment is not None:
+        file_format = "cuaderna.run/2"
+        left_out = {}
     document = _RunFile(
-        format="cuaderna.run/1",
+        format=file_format,
         run=_RunSection(
             run_id=record.run_id,
             name=record.name,
@@ -89,6 +111,7 @@ def dump_run_file(record: RunRecord, attempts: list[StepAttempt], redact: Redact
             created_at=record.created_at,
             finished_at=record.finished_at,
             seal=record.seal if redact is None else None,
+            experiment=_experiment_section(record.experiment),
         ),
         attempts=[
             _AttemptSection(
@@ -108,7 +131,10 @@ def dump_run_file(record: RunRecord, attempts: list[StepAttempt], redact: Redact
             for attempt in attempts
         ],
     )
-    return json.dumps(document.model_dump(mode="json"), indent=2, ensure_ascii=False) + "\n"
+    return (
+        json.dumps(document.model_dump(mode="json", exclude=left_out), indent=2, ensure_ascii=False)
+        + "\n"
+    )
 
 
 def load_run_file(text: str, as_run_id: str | None) -> tuple[RunRecord, list[StepAttempt]]:
@@ -133,8 +159,33 @@ def load_run_file(text: str, as_run_id: str | None) -> tuple[RunRecord, list[Ste
         created_at=run.created_at,
         finished_at=run.finished_at,
         seal=run.seal,
+        experiment=_experiment_marker(run.experiment),
     )
     return record, [_attempt(section) for section in document.attempts]
+
+
+def _experiment_section(marker: ExperimentMarker | None) -> _ExperimentSection | None:
+    if marker is None:
+        return None
+    return _ExperimentSection(
+        source_run_id=marker.source_run_id,
+        reuse=list(marker.reuse),
+        plan_id=marker.plan_id,
+        plan_hash=marker.plan_hash,
+        fault_id=marker.fault_id,
+    )
+
+
+def _experiment_marker(section: _ExperimentSection | None) -> ExperimentMarker | None:
+    if section is None:
+        return None
+    return ExperimentMarker(
+        source_run_id=section.source_run_id,
+        reuse=tuple(section.reuse),
+        plan_id=section.plan_id,
+        plan_hash=section.plan_hash,
+        fault_id=section.fault_id,
+    )
 
 
 def _refuse_constant(constant: str) -> float:

@@ -5,14 +5,17 @@ from datetime import UTC, datetime
 from pydantic import JsonValue
 
 from ._errors import JournalTamperedError
-from ._records import RunRecord, RunStatus, StepAttempt
+from ._records import ExperimentMarker, RunRecord, RunStatus, StepAttempt
 from ._serde import canonical_json
 
 _FINISHED = (RunStatus.COMPLETED, RunStatus.FAILED)
 
 
-def first_link(name: str, input_json: str) -> str:
-    return _digest(canonical_json({"name": name, "input": json.loads(input_json)}))
+def first_link(name: str, input_json: str, experiment: ExperimentMarker | None) -> str:
+    opening: dict[str, JsonValue] = {"name": name, "input": json.loads(input_json)}
+    if experiment is not None:
+        opening["experiment"] = json.loads(experiment.to_json())
+    return _digest(canonical_json(opening))
 
 
 def next_link(previous: str, attempt: StepAttempt) -> str:
@@ -42,7 +45,7 @@ def run_seal(head: str, status: RunStatus, output_json: str | None, error_json: 
 
 
 def verified_digest(run_id: str, record: RunRecord, attempts: list[StepAttempt]) -> str:
-    head = first_link(record.name, record.input_json)
+    head = first_link(record.name, record.input_json, record.experiment)
     for attempt in attempts:
         if attempt.chain_hash is None:
             raise _tampered(
