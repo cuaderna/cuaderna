@@ -70,6 +70,10 @@ class RunMismatchError(CuadernaError):
     pass
 
 
+class ExperimentMismatchError(CuadernaError, ValueError):
+    pass
+
+
 class RunNotFoundError(CuadernaError):
     pass
 
