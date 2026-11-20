@@ -20,7 +20,7 @@ A rerun executes the run function again from the start, as a new run with the in
 }
 ```
 
-`FaultPlan.load("faults.json")` reads at most `max_bytes` (1 MiB by default). `FaultPlan(document)` takes the same thing as a dict. Both raise `FaultPlanError` for a file that is larger, unreadable or not JSON, and for a document that is not a plan: another `format`, a key this page does not list, an `id` that is empty or used twice, or a fault that is not exactly one of the three kinds. `plan.faults` is the tuple of faults in file order, and `plan.content_hash` is the SHA-256 of the plan, which does not depend on the order of keys.
+`FaultPlan.load("faults.json")` reads at most `max_bytes` (1 MiB by default). `FaultPlan(document)` takes the same thing as a dict. Both raise `FaultPlanError` for a file that is larger, unreadable or not JSON, and for a document that is not a plan: another `format`, a key this page does not list, an `id` that is empty or used twice, or a fault that is not exactly one of the four kinds. `plan.faults` is the tuple of faults in file order, and `plan.content_hash` is the SHA-256 of the plan, which does not depend on the order of keys.
 
 `at` is a step name, such as `ask_model`, which targets every call of that step, or a step key, such as `ask_model#2`, which targets one call. It cannot be empty or contain `:`.
 
@@ -29,6 +29,9 @@ A rerun executes the run function again from the start, as a new run with the in
 | `raise` | The attempt fails with an exception and the step does not run. | `type` and `message`, `attempts` (fail the first N attempts of each targeted call; without it every attempt fails), `terminal` (true makes it a `TerminalError`, so the step is not retried) |
 | `return` | The attempt returns the value you give, and the step does not run. | The value, any JSON, also `null`. It has to fit the return type of the step. |
 | `append` | The step runs, or is served from the recording, and text is added to a string in its result. | `to`, a JSON Pointer ([RFC 6901](https://www.rfc-editor.org/rfc/rfc6901)) into the result as JSON, where `""` is the whole result, and `text` |
+| `delay` | The step waits, then runs or is served as usual. | `seconds`, more than 0 and at most 3600, and `attempts` (delay the first N attempts of each targeted call; without it every attempt waits) |
+
+The wait of a `delay` is part of the attempt, so `timeout_seconds` on the step bounds it: with a timeout shorter than `seconds` the attempt fails with `StepTimeoutError` and is retried like any timed-out attempt, and without a timeout the step only finishes later. The attempt that waited carries the fault annotation. A hang is a delay longer than the timeout.
 
 A `raise` fault reaches the run function the way a real failure does: after the retries the step allows, as a `StepFailedError`. The attempt is recorded with the `type` and `message` you gave. An `append` whose pointer finds no string, or a `return` that does not fit the step, fails the run with `FaultPlanError`.
 
@@ -88,7 +91,7 @@ asyncio.run(main())
 - One fault per experiment. A trial is a separate run with its own id, so ten trials are ten calls to `rerun`.
 - Whether the agent recovered is your assertion. The library gives facts and no verdict.
 - Whether injected text worked is read from the audit log: the agent ignored it, obeyed it and was denied, or obeyed it and the step executed.
-- Not done: forking a run from a step, injecting into a first execution, probabilities, delays, hangs, several faults at once, faults inside a step, rewriting arguments, detecting or filtering injected text, and snapshots of the environment.
+- Not done: forking a run from a step, injecting into a first execution, probabilities, several faults at once, faults inside a step, rewriting arguments, detecting or filtering injected text, and snapshots of the environment.
 
 ## Reading an experiment
 

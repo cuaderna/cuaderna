@@ -50,6 +50,14 @@ def test_a_return_fault_loads_with_its_value_even_when_it_is_null(value: JsonVal
     assert (loaded.kind, loaded.value, loaded.fails_attempt(1)) == ("return", value, False)
 
 
+def test_a_delay_fault_loads_with_its_seconds_and_attempts() -> None:
+    loaded = only_fault(delay={"seconds": 0.5, "attempts": 2})
+
+    assert (loaded.kind, loaded.seconds, loaded.attempts) == ("delay", 0.5, 2)
+    assert (loaded.delays_attempt(2), loaded.delays_attempt(3)) == (True, False)
+    assert only_fault(delay={"seconds": 3600}).delays_attempt(9)
+
+
 def test_an_append_fault_loads_with_its_pointer_and_text() -> None:
     loaded = appender("/a")
 
@@ -138,6 +146,13 @@ def test_a_target_that_is_not_a_step_name_or_key_is_refused(at: str) -> None:
         {"append": {"to": "a", "text": "x"}},
         {"append": {"to": "/a~2", "text": "x"}},
         {"append": {"to": "/a", "text": ""}},
+        {"delay": {"seconds": 0}},
+        {"delay": {"seconds": -1}},
+        {"delay": {"seconds": 3600.5}},
+        {"delay": {"seconds": 1, "attempts": 0}},
+        {"delay": {"seconds": 1, "unknown": 1}},
+        {"delay": {}},
+        {**RETURN, "delay": {"seconds": 1}},
     ],
 )
 def test_a_malformed_fault_is_refused(body: dict[str, object]) -> None:

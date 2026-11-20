@@ -1,3 +1,4 @@
+import asyncio
 import dataclasses
 import json
 from collections.abc import Callable, Coroutine
@@ -99,6 +100,11 @@ class RerunningContext:
         if fault.kind == "return":
             self._mark_fired(fault, executed=False)
             return self._loaded(fault, underlying, fault.value)
+        if fault.kind == "delay":
+            if fault.delays_attempt(attempt):
+                self._mark_fired(fault, executed=not served)
+                await asyncio.sleep(fault.seconds)
+            return await underlying.invoke(*args, **kwargs)
         result = await underlying.invoke(*args, **kwargs)
         appended = fault.appended_to(json.loads(underlying.codec.dump_result(result)))
         self._mark_fired(fault, executed=not served)

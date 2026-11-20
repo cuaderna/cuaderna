@@ -26,6 +26,13 @@ class _Raise(BaseModel):
     terminal: bool = Field(default=False, strict=True)
 
 
+class _Delay(BaseModel):
+    model_config = _CLOSED
+
+    seconds: float = Field(gt=0, le=3600, strict=True)
+    attempts: int | None = Field(default=None, ge=1, strict=True)
+
+
 class _Append(BaseModel):
     model_config = _CLOSED
 
@@ -41,16 +48,19 @@ class _Fault(BaseModel):
     raise_: _Raise | None = Field(default=None, alias="raise")
     return_: JsonValue = Field(default=None, alias="return")
     append: _Append | None = None
+    delay: _Delay | None = None
 
     @model_validator(mode="after")
     def _exactly_one_kind(self) -> Self:
         present = [
-            name for name in ("raise_", "return_", "append") if name in self.model_fields_set
+            name
+            for name in ("raise_", "return_", "append", "delay")
+            if name in self.model_fields_set
         ]
         if len(present) != 1:
-            raise ValueError("a fault has exactly one of raise, return and append")
+            raise ValueError("a fault has exactly one of raise, return, append and delay")
         if present[0] != "return_" and getattr(self, present[0]) is None:
-            raise ValueError("a raise or append fault needs a body")
+            raise ValueError("a raise, append or delay fault needs a body")
         return self
 
 
@@ -85,7 +95,7 @@ def _append_into(node: JsonValue, tokens: list[str], text: str) -> JsonValue:
 class Fault:
     id: str
     at: str
-    kind: Literal["raise", "return", "append"]
+    kind: Literal["raise", "return", "append", "delay"]
     plan_id: str
     plan_hash: str
     error_type: str = ""
@@ -95,6 +105,7 @@ class Fault:
     value: JsonValue = None
     pointer: str = ""
     text: str = ""
+    seconds: float = 0.0
 
     def targets(self, step_key: str) -> bool:
         if self.at == step_key:
@@ -103,6 +114,11 @@ class Fault:
 
     def fails_attempt(self, attempt: int) -> bool:
         if self.kind != "raise":
+            return False
+        return self.attempts is None or attempt <= self.attempts
+
+    def delays_attempt(self, attempt: int) -> bool:
+        if self.kind != "delay":
             return False
         return self.attempts is None or attempt <= self.attempts
 
@@ -122,6 +138,9 @@ def _build_fault(parsed: _Fault, plan_id: str, plan_hash: str) -> Fault:
     if parsed.append is not None:
         payload = parsed.append.model_dump()
         return Fault(parsed.id, parsed.at, "append", plan_id, plan_hash, **payload)
+    if parsed.delay is not None:
+        payload = parsed.delay.model_dump()
+        return Fault(parsed.id, parsed.at, "delay", plan_id, plan_hash, **payload)
     return Fault(parsed.id, parsed.at, "return", plan_id, plan_hash, value=parsed.return_)
 
 
