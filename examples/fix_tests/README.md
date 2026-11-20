@@ -135,3 +135,11 @@ uv run python -m examples.fix_tests.experiments --journal /tmp/fix-tests/journal
 ```
 
 Its runs are named `fix-tests.gives-up.control` and `fix-tests.gives-up.<fault>.<trial>`. A recording of the first agent failing on `model-down`, replayed against `gives_up.fix_tests`, raises `ReplayDivergedError`: the run that failed now returns. That is the regression signal [docs/faults.md](../../docs/faults.md#keeping-an-experiment) describes, and it costs nothing to run.
+
+[compare.py](compare.py) puts two runs of the plan side by side, fault by fault: it imports the files a `runs.json` lists into a temporary journal and prints, for each fault, how many trials ended fixed, not fixed, gave up or failed, how many diverged, how many attempts executed and what they cost, before and after. When an index holds runs of both agents, `--before-agent` and `--after-agent` pick which. The published runs compare the first agent with the one that gives up:
+
+```
+uv run python -m examples.fix_tests.compare --before site/runs.json --before-agent agent --after site/runs.json --after-agent gives-up
+```
+
+On `model-down` the first agent failed with `ConnectionError` in 3 of 3 trials and the second gave up in 3 of 3. Faults that only one side ran show `-` on the other. It refuses two sets that come from different versions of the plan, and it gives counts, not a verdict: what a difference in three trials can mean is in [docs/faults.md](../../docs/faults.md#comparing-two-runs-of-a-plan).
