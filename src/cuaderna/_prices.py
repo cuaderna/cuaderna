@@ -12,7 +12,6 @@ from pydantic import (
     ConfigDict,
     Field,
     JsonValue,
-    NonNegativeInt,
     ValidationError,
     field_validator,
 )
@@ -21,6 +20,9 @@ from ._errors import PriceTableError
 from ._files import read_text_within
 from ._serde import canonical_json
 
+MAX_TOKEN_COUNT = 10**12
+_MAX_RATE = Decimal(10**9)
+_MAX_RATE_DECIMALS = 18
 _TOKENS_PER_RATE = Decimal(1_000_000)
 _REQUESTS_PER_RATE = Decimal(1_000)
 _INPUT_TOKENS_OVER = "input_tokens_over"
@@ -40,6 +42,7 @@ def _rate_from_string(value: object) -> Decimal:
 
 
 _Rate = Annotated[Decimal, BeforeValidator(_rate_from_string)]
+TokenCount = Annotated[int, Field(ge=0, le=MAX_TOKEN_COUNT, strict=True)]
 
 
 class _Rates(BaseModel):
@@ -91,18 +94,14 @@ class _ModelCall(BaseModel):
     provider: str | None = Field(default=None, alias="gen_ai.provider.name")
     requested_model: str | None = Field(default=None, alias="gen_ai.request.model")
     response_model: str | None = Field(default=None, alias="gen_ai.response.model")
-    input_tokens: NonNegativeInt | None = Field(default=None, alias="gen_ai.usage.input_tokens")
-    output_tokens: NonNegativeInt | None = Field(default=None, alias="gen_ai.usage.output_tokens")
-    cache_read_tokens: NonNegativeInt = Field(
-        default=0, alias="gen_ai.usage.cache_read.input_tokens"
-    )
-    cache_write_tokens: NonNegativeInt = Field(
-        default=0, alias="gen_ai.usage.cache_write.input_tokens"
-    )
-    cache_writes_by_lifetime: dict[str, NonNegativeInt] = Field(
+    input_tokens: TokenCount | None = Field(default=None, alias="gen_ai.usage.input_tokens")
+    output_tokens: TokenCount | None = Field(default=None, alias="gen_ai.usage.output_tokens")
+    cache_read_tokens: TokenCount = Field(default=0, alias="gen_ai.usage.cache_read.input_tokens")
+    cache_write_tokens: TokenCount = Field(default=0, alias="gen_ai.usage.cache_write.input_tokens")
+    cache_writes_by_lifetime: dict[str, TokenCount] = Field(
         default={}, alias="cuaderna.usage.cache_write_by_ttl"
     )
-    requests: dict[str, NonNegativeInt] = Field(default={}, alias="cuaderna.usage.requests")
+    requests: dict[str, TokenCount] = Field(default={}, alias="cuaderna.usage.requests")
     conditions: dict[str, JsonValue] = Field(default={}, alias="cuaderna.usage.conditions")
 
 
@@ -127,6 +126,7 @@ class PriceTable:
             raise PriceTableError(f"not a price table this library can read: {error}") from error
         prices_by_name: dict[tuple[str, str], _ModelPrices] = {}
         for prices in parsed.models:
+            _require_rates_within_bounds(prices)
             for name in prices.names:
                 key = (prices.provider.lower(), name.lower())
                 if key in prices_by_name:
@@ -205,6 +205,25 @@ class PriceTable:
         return None
 
 
+def _require_rates_within_bounds(prices: _ModelPrices) -> None:
+    for rates in [prices.rates, *(variant.rates for variant in prices.variants)]:
+        named = {"input": rates.input, "output": rates.output, "cache_read": rates.cache_read}
+        named.update({f"cache_write.{kind}": rate for kind, rate in rates.cache_write.items()})
+        named.update({f"requests.{kind}": rate for kind, rate in rates.requests.items()})
+        for field, rate in named.items():
+            if rate is not None and not _is_within_bounds(rate):
+                raise PriceTableError(
+                    f"the {prices.provider} model {prices.names[0]!r} has a {field} rate of "
+                    f"{rate}, which is above {_MAX_RATE} or has more than "
+                    f"{_MAX_RATE_DECIMALS} decimal places"
+                )
+
+
+def _is_within_bounds(rate: Decimal) -> bool:
+    exponent = rate.as_tuple().exponent
+    return rate <= _MAX_RATE and isinstance(exponent, int) and exponent >= -_MAX_RATE_DECIMALS
+
+
 def _read_call(annotations: Mapping[str, JsonValue]) -> _ModelCall | UnknownCost:
     try:
         return _ModelCall.model_validate(annotations)
@@ -214,11 +233,32 @@ def _read_call(annotations: Mapping[str, JsonValue]) -> _ModelCall | UnknownCost
 
 def _read_usage(call: _ModelCall) -> tuple[int, int] | UnknownCost:
     if call.input_tokens is None or call.output_tokens is None:
-        return UnknownCost("the response reported no usage")
+        missing = [
+            field
+            for field, count in (
+                ("gen_ai.usage.input_tokens", call.input_tokens),
+                ("gen_ai.usage.output_tokens", call.output_tokens),
+            )
+            if count is None
+        ]
+        return UnknownCost(f"the response reported no usage in {' or '.join(missing)}")
     return call.input_tokens, call.output_tokens
 
 
 def _price_call(
+    call: _ModelCall,
+    usage: tuple[int, int],
+    name: str,
+    rates: _Rates,
+    variant: Mapping[str, JsonValue] | None,
+) -> CallCost | UnknownCost:
+    try:
+        return _compute_call(call, usage, name, rates, variant)
+    except ArithmeticError:
+        return UnknownCost("the arithmetic of the cost overflowed")
+
+
+def _compute_call(
     call: _ModelCall,
     usage: tuple[int, int],
     name: str,
