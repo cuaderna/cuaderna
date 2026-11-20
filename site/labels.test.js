@@ -311,17 +311,83 @@ test("the picker lists the source, then the control, then experiments grouped by
   assert.deepEqual(
     choices.map(({ label }) => label),
     [
-      "what was recorded",
-      "replayed with nothing changed",
-      "bad-edit, trial 1: fixed, injected text ignored",
-      "model-timeout, trial 1: failed with OSError",
-      "model-timeout, trial 2: fixed",
+      "The sample run, as recorded",
+      "Control: replayed with nothing changed",
+      "trial 1: fixed, injected text ignored",
+      "trial 1: failed with OSError",
+      "trial 2: fixed",
     ],
+  );
+  assert.deepEqual(
+    choices.map(({ group }) => group),
+    ["Sample run", "Sample run", "bad-edit", "model-timeout", "model-timeout"],
   );
 });
 
 test("a picker label is text and never changes the file it opens", () => {
   const [choice] = labels.pickerChoices([entry({ fault: "<img src=x onerror=alert(1)>", trial: null })]);
-  assert.equal(choice.label, "<img src=x onerror=alert(1)>: t");
+  assert.equal(choice.group, "<img src=x onerror=alert(1)>");
+  assert.equal(choice.label, "experiment: t");
   assert.equal(choice.file, "experiments/a.json");
+});
+
+test("an outcome shows the scalar fields of a completed run and nothing else", () => {
+  const output = { fixed: true, rounds: 1, notes: { deep: 1 }, list: [1], text: "x".repeat(41) };
+  assert.equal(labels.outcomeText({ status: "completed", output }), "completed (fixed: true, rounds: 1)");
+  assert.equal(labels.outcomeText({ status: "completed", output: "done" }), "completed");
+  assert.equal(labels.outcomeText({ status: "completed", output: [1] }), "completed");
+  assert.equal(labels.outcomeText({ status: "failed", output: { fixed: false } }), "failed");
+  const message = "step 'ask_model#1' failed with ConnectionError: model unreachable";
+  assert.equal(labels.outcomeText({ status: "failed", error: { message } }), `failed: ${message}`);
+  assert.equal(labels.outcomeText({ status: "failed", error: { message: "a\n  b" } }), "failed: a b");
+  for (const error of [null, "boom", [], {}, { message: 5 }, { message: "  " }]) {
+    assert.equal(labels.outcomeText({ status: "failed", error }), "failed");
+  }
+  const long = labels.outcomeText({ status: "failed", error: { message: "x".repeat(500) } });
+  assert.equal(long, `failed: ${"x".repeat(200)}...`);
+  assert.equal(labels.outcomeText({ status: "ok​", output: null }), "unknown status");
+});
+
+test("a retry is named only from the second attempt on", () => {
+  assert.equal(labels.retryText(1), null);
+  assert.equal(labels.retryText(2), "retry 1");
+  for (const hostile of [undefined, null, "2", 1.5, -3, NaN]) {
+    assert.equal(labels.retryText(hostile), null);
+  }
+});
+
+test("a time is shown in UTC and an unreadable one is invalid", () => {
+  assert.equal(labels.timeText("2026-11-20T04:24:18.976272Z"), "2026-11-20 04:24:18 UTC");
+  assert.equal(labels.timeText("2026-11-20T06:00:00+02:00"), "2026-11-20 04:00:00 UTC");
+  assert.equal(labels.timeText(""), "not finished");
+  for (const hostile of ["yesterday", "2026-13-45T00:00:00Z", 5, null]) {
+    assert.equal(labels.timeText(hostile), "invalid time");
+  }
+});
+
+test("steps are counted by step key and retries are said", () => {
+  assert.equal(labels.stepsText([{ step_key: "a#1" }]), "1 step");
+  assert.equal(labels.stepsText([{ step_key: "a#1" }, { step_key: "b#2" }]), "2 steps");
+  assert.equal(
+    labels.stepsText([{ step_key: "a#1" }, { step_key: "a#1" }, { step_key: "b#2" }]),
+    "2 steps, 1 of them retried",
+  );
+});
+
+test("a takeover divider is one short clause", () => {
+  assert.equal(labels.takeoverText(2, "4.8 s"), "Process 2 took over 4.8 s later");
+  assert.equal(
+    labels.takeoverText(3, "invalid time"),
+    "Process 3 took over at a recorded time that is invalid",
+  );
+});
+
+test("a handover says what the file shows and not why the process stopped", () => {
+  const text = labels.handoverText(2, "read_sources#1", "4.8 s");
+  assert.equal(
+    text,
+    "Process 1 stopped after read_sources#1. Process 2 took over 4.8 s later and continued from the journal.",
+  );
+  assert.doesNotMatch(text, /killed|budget|crash/);
+  assert.match(labels.handoverText(3, "a#1", "invalid time"), /took over at a recorded time that is invalid/);
 });
