@@ -1,8 +1,10 @@
 import asyncio
 import json
+import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NoReturn
 from uuid import uuid4
 
 from ._audit import AuditEntry, StepDecision, audit_entries, decisions_under
@@ -14,6 +16,7 @@ from ._errors import (
     BudgetExceededError,
     CostUnknownError,
     InvalidDefinitionError,
+    JournalBusyError,
     LeaseLostError,
     PriceTableError,
     ReplayDivergedError,
@@ -45,6 +48,15 @@ from .storage import Storage
 from .storage._sqlite import SqliteStorage
 
 _LONGEST_CLAIM_WAIT_SECONDS = 1.0
+
+
+def _write_run_file(path: Path, text: str) -> None:
+    if os.name != "posix":
+        path.write_text(text, encoding="utf-8", newline="\n")
+        return
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as file:
+        file.write(text)
 
 
 class Engine:
@@ -113,11 +125,17 @@ class Engine:
                     pause = min(pause, remaining)
                 await asyncio.sleep(pause)
         heartbeat = asyncio.create_task(self._keep_lease(lease))
+        driving = asyncio.ensure_future(self._drive(run, lease, *args, **kwargs))
         try:
-            return await self._drive(run, lease, *args, **kwargs)
+            await asyncio.wait({driving, heartbeat}, return_when=asyncio.FIRST_COMPLETED)
+            if not driving.done():
+                driving.cancel()
+                heartbeat.result()
+            return driving.result()
         finally:
+            driving.cancel()
             heartbeat.cancel()
-            await asyncio.gather(heartbeat, return_exceptions=True)
+            await asyncio.gather(driving, heartbeat, return_exceptions=True)
 
     async def run_record(self, run_id: str) -> RunRecord:
         record = await self._storage.get_run(run_id)
@@ -230,7 +248,7 @@ class Engine:
         record = await self.run_record(run_id)
         attempts = await self._storage.load_attempts(run_id)
         text = dump_run_file(record, attempts, redact)
-        await asyncio.to_thread(Path(path).write_text, text, encoding="utf-8", newline="\n")
+        await asyncio.to_thread(_write_run_file, Path(path), text)
 
     async def import_run(
         self, path: str | Path, *, as_run_id: str | None = None, max_bytes: int = 67_108_864
@@ -296,7 +314,7 @@ class Engine:
             with active_run(context):
                 output = await run.function(*args, **kwargs)
             output_json = run.codec.dump_result(output)
-        except LeaseLostError:
+        except (LeaseLostError, JournalBusyError):
             raise
         except (StepMismatchError, BudgetExceededError, CostUnknownError, ApprovalRequiredError):
             await self._storage.release_run(lease)
@@ -316,10 +334,21 @@ class Engine:
         await self._storage.complete_run(lease, output_json)
         return run.codec.load_result(output_json)
 
-    async def _keep_lease(self, lease: Lease) -> None:
+    async def _keep_lease(self, lease: Lease) -> NoReturn:
+        expires_at = time.monotonic() + self._lease_seconds
         while True:
             await asyncio.sleep(self._lease_seconds / 3)
-            await self._storage.renew_lease(lease, self._lease_seconds)
+            renewing_since = time.monotonic()
+            try:
+                await self._storage.renew_lease(lease, self._lease_seconds)
+            except JournalBusyError as error:
+                if time.monotonic() >= expires_at:
+                    raise LeaseLostError(
+                        f"the lease on run {lease.run_id!r} could not be renewed for "
+                        f"{self._lease_seconds} seconds because the journal was busy"
+                    ) from error
+            else:
+                expires_at = renewing_since + self._lease_seconds
 
     async def close(self) -> None:
         await asyncio.gather(*self._giving_back, return_exceptions=True)
