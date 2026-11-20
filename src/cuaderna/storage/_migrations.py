@@ -103,6 +103,37 @@ _MIGRATIONS: tuple[tuple[str, ...], ...] = (
         """,
     ),
     ("ALTER TABLE step_attempts ADD COLUMN chain_hash TEXT",),
+    (
+        """
+        CREATE TRIGGER step_attempts_no_replace BEFORE INSERT ON step_attempts
+        WHEN EXISTS (
+            SELECT 1 FROM step_attempts
+            WHERE id = NEW.id
+            OR (run_id = NEW.run_id AND step_key = NEW.step_key AND attempt = NEW.attempt)
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'step_attempts is append-only');
+        END
+        """,
+        """
+        CREATE TRIGGER approval_requests_no_replace BEFORE INSERT ON approval_requests
+        WHEN EXISTS (
+            SELECT 1 FROM approval_requests
+            WHERE id = NEW.id
+            OR (run_id = NEW.run_id AND step_key = NEW.step_key AND args_hash = NEW.args_hash)
+        )
+        BEGIN
+            SELECT RAISE(IGNORE);
+        END
+        """,
+        """
+        CREATE TRIGGER approval_answers_no_replace BEFORE INSERT ON approval_answers
+        WHEN EXISTS (SELECT 1 FROM approval_answers WHERE request_id = NEW.request_id)
+        BEGIN
+            SELECT RAISE(ABORT, 'approval_answers is append-only');
+        END
+        """,
+    ),
 )
 
 LATEST_VERSION = len(_MIGRATIONS)

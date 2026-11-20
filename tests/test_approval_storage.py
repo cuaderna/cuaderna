@@ -15,6 +15,7 @@ from .storage.contract import attempt_for, claimed_run
 
 MOMENT = datetime(2026, 1, 1, tzinfo=UTC)
 STATEMENTS_UP_TO_VERSION_2 = 4
+STATEMENTS_UP_TO_VERSION_4 = 13
 ANSWER_YES = ApprovalAnswer(approved=True, by="ana", note="looks fine", at=MOMENT)
 
 
@@ -125,6 +126,87 @@ async def test_journal_tables_are_append_only(
     connection.close()
 
 
+async def test_insert_or_replace_cannot_rewrite_an_attempt(
+    storage: Storage, journal_path: Path
+) -> None:
+    lease = await claimed_run(storage)
+    await storage.record_attempt(lease, attempt_for("deploy#1"))
+    connection = sqlite3.connect(journal_path)
+    before = connection.execute("SELECT * FROM step_attempts").fetchall()
+
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        connection.execute(
+            "INSERT OR REPLACE INTO step_attempts (run_id, step_key, name, attempt, status, "
+            "args_hash, args_json, started_at, finished_at) "
+            "VALUES ('run', 'deploy#1', 'deploy', 1, 'error', 'other', '[]', 'x', 'x')"
+        )
+
+    assert connection.execute("SELECT * FROM step_attempts").fetchall() == before
+    connection.close()
+
+
+async def test_insert_or_replace_cannot_turn_a_rejection_into_an_approval(
+    storage: Storage, journal_path: Path
+) -> None:
+    lease = await claimed_run(storage)
+    await storage.request_approval(lease, request_for())
+    await storage.answer_approval(
+        "run", "deploy#1", "hash", ApprovalAnswer(approved=False, by="ana", note=None, at=MOMENT)
+    )
+    connection = sqlite3.connect(journal_path)
+    requests_before = connection.execute("SELECT * FROM approval_requests").fetchall()
+    answers_before = connection.execute("SELECT * FROM approval_answers").fetchall()
+
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        connection.execute(
+            "INSERT OR REPLACE INTO approval_answers "
+            "(request_id, approved, answered_by, note, answered_at) VALUES (1, 1, 'eve', NULL, 'x')"
+        )
+    connection.execute(
+        "INSERT OR REPLACE INTO approval_requests (id, run_id, step_key, name, args_hash, "
+        "args_json, policy_id, policy_hash, rules_json, requested_at) "
+        "VALUES (1, 'run', 'deploy#1', 'other', 'hash', '[]', 'p', 'h', '[]', 'x')"
+    )
+
+    assert connection.execute("SELECT * FROM approval_requests").fetchall() == requests_before
+    assert connection.execute("SELECT * FROM approval_answers").fetchall() == answers_before
+    connection.close()
+
+
+async def test_asking_twice_for_the_same_step_still_keeps_one_request(
+    storage: Storage,
+) -> None:
+    lease = await claimed_run(storage)
+
+    await storage.request_approval(lease, request_for())
+    await storage.request_approval(lease, request_for())
+
+    assert len(await storage.list_approvals("run")) == 1
+
+
+async def test_a_version_4_journal_migrates_to_5_and_gets_the_replace_triggers(
+    storage: Storage, journal_path: Path
+) -> None:
+    connection = sqlite3.connect(journal_path)
+    for statement in pending_statements(0)[:STATEMENTS_UP_TO_VERSION_4]:
+        connection.execute(statement)
+    connection.execute("PRAGMA user_version = 4")
+    connection.close()
+
+    lease = await claimed_run(storage)
+    await storage.record_attempt(lease, attempt_for("deploy#1"))
+
+    connection = sqlite3.connect(journal_path)
+    assert connection.execute("PRAGMA user_version").fetchone() == (5,)
+    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        connection.execute(
+            "INSERT OR REPLACE INTO step_attempts (run_id, step_key, name, attempt, status, "
+            "args_hash, args_json, started_at, finished_at) "
+            "VALUES ('run', 'deploy#1', 'deploy', 1, 'error', 'other', '[]', 'x', 'x')"
+        )
+    connection.close()
+
+
 async def test_a_version_2_journal_migrates_to_3_with_its_attempts(
     storage: Storage, journal_path: Path
 ) -> None:
@@ -149,5 +231,5 @@ async def test_a_version_2_journal_migrates_to_3_with_its_attempts(
 
     assert [attempt.step_key for attempt in attempts] == ["step#1"]
     connection = sqlite3.connect(journal_path)
-    assert connection.execute("PRAGMA user_version").fetchone() == (4,)
+    assert connection.execute("PRAGMA user_version").fetchone() == (5,)
     connection.close()
