@@ -21,7 +21,9 @@
   const MAX_INDEX_ENTRIES = 200;
   const MAX_INDEX_TEXT_LENGTH = 200;
   const INDEX_KINDS = ["source", "control", "experiment"];
-  const INDEX_KEYS = ["file", "run_id", "kind", "fault", "trial", "ended", "outcome"];
+  const INDEX_KEYS = ["file", "run_id", "kind", "fault", "trial", "ended", "outcome", "agent"];
+  const PLAIN_AGENT = "agent";
+  const AGENT_GROUPS = { "gives-up": "The agent that gives up" };
   const INDEX_FILE_PATTERN = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*\.json$/;
   const INDEX_RANKS = { source: 0, control: 1, experiment: 2 };
   const COST_PART_LABELS = [
@@ -487,7 +489,8 @@
       (entry.fault === null || isIndexText(entry.fault)) &&
       (entry.trial === null || Number.isInteger(entry.trial)) &&
       isIndexText(entry.ended) &&
-      (entry.outcome === null || isIndexText(entry.outcome))
+      (entry.outcome === null || isIndexText(entry.outcome)) &&
+      (entry.agent === undefined || isIndexText(entry.agent))
     );
   }
 
@@ -519,7 +522,18 @@
     return first < second ? -1 : 1;
   }
 
+  function agentKey(entry) {
+    if (entry.agent === undefined || entry.agent === PLAIN_AGENT) {
+      return "";
+    }
+    return entry.agent;
+  }
+
   function compareChoices(first, second) {
+    const byAgent = compareNullsLast(agentKey(first.entry), agentKey(second.entry));
+    if (byAgent !== 0) {
+      return byAgent;
+    }
     const byKind = INDEX_RANKS[first.entry.kind] - INDEX_RANKS[second.entry.kind];
     if (byKind !== 0) {
       return byKind;
@@ -546,6 +560,9 @@
     if (entry.trial !== null) {
       label = `trial ${entry.trial}`;
     }
+    if (agentKey(entry) !== "" && entry.fault !== null) {
+      label = `${entry.fault}, ${label}`;
+    }
     label += `: ${entry.ended}`;
     if (entry.outcome !== null) {
       label += `, injected text ${entry.outcome}`;
@@ -554,6 +571,10 @@
   }
 
   function choiceGroup(entry) {
+    const agent = agentKey(entry);
+    if (agent !== "") {
+      return Object.hasOwn(AGENT_GROUPS, agent) ? AGENT_GROUPS[agent] : `Agent ${agent}`;
+    }
     if (entry.kind === "experiment") {
       return entry.fault ?? "Experiments";
     }
