@@ -70,6 +70,12 @@ header p {
   color: var(--quiet);
 }
 
+#chain-note {
+  margin: -0.5rem 0 1rem;
+  font-size: 0.875rem;
+  color: var(--quiet);
+}
+
 #status.problem {
   color: var(--failed);
 }

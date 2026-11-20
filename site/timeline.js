@@ -19,8 +19,8 @@ const ZERO_AMOUNT_PATTERN = /^0(\.0+)?$/;
 const MISSING_PRICE_TABLE_REASON = "the model call was recorded without a price table";
 const UNREADABLE_COST_REASON = "the recorded cost cannot be read";
 const UNREADABLE_AUTHORIZATION = "unreadable";
-const AUTHORIZATION_REASONS = ["rule", "no_rule", "unevaluable", "rejected"];
 
+const labels = globalThis.cuadernaLabels;
 const statusLine = document.querySelector("#status");
 const timeline = document.querySelector("#timeline");
 const detail = document.querySelector("#detail");
@@ -217,22 +217,6 @@ function costFacts(cost) {
   return [...facts, ...costPartFacts(cost.parts)];
 }
 
-function recordedAuthorization(attempt) {
-  const recorded = attempt.annotations?.["cuaderna.authorization"];
-  if (recorded === undefined) {
-    return null;
-  }
-  const isReadable =
-    recorded !== null &&
-    typeof recorded === "object" &&
-    (recorded.decision === "allow" || recorded.decision === "deny") &&
-    AUTHORIZATION_REASONS.includes(recorded.reason);
-  if (!isReadable) {
-    return { unreadable: true };
-  }
-  return recorded;
-}
-
 function textOrNull(value) {
   if (typeof value === "string") {
     return value;
@@ -293,6 +277,9 @@ function authorizationApprovalFacts(recorded) {
 }
 
 function authorizationFacts(recorded) {
+  if (recorded === null) {
+    return [["authorization", "not recorded"]];
+  }
   if (recorded.unreadable) {
     return [["authorization", UNREADABLE_AUTHORIZATION]];
   }
@@ -311,25 +298,13 @@ function authorizationFacts(recorded) {
   return facts.filter(([, value]) => value !== null);
 }
 
-function authorizationLabel(recorded) {
-  if (recorded === null || recorded.unreadable) {
-    return null;
-  }
-  if (recorded.decision === "deny") {
-    return "denied";
-  }
-  if (recorded.approval !== null && typeof recorded.approval === "object") {
-    return "approved";
-  }
-  return null;
-}
-
 function rowStatusText(attempt) {
-  const label = authorizationLabel(recordedAuthorization(attempt));
-  if (label === "approved" && attempt.status !== "ok") {
-    return attempt.status;
+  const label = labels.authorizationLabel(labels.recordedAuthorization(attempt));
+  const showsStatus = label === "allowed" || (label === "approved" && attempt.status !== "ok");
+  if (showsStatus) {
+    return labels.statusLabel(attempt.status);
   }
-  return label ?? attempt.status;
+  return label;
 }
 
 function leaseGroups(attempts) {
@@ -429,6 +404,7 @@ function showAttemptDetail(attempt) {
       ["finished", attempt.finished_at],
       ["duration", durationText(secondsBetween(attempt.started_at, attempt.finished_at))],
       ["lease token", String(attempt.lease_token ?? "not recorded")],
+      ["chain hash", labels.chainText(attempt.chain_hash)],
     ]),
   ];
   if (modelFacts.length > 0) {
@@ -438,10 +414,10 @@ function showAttemptDetail(attempt) {
   if (cost !== null) {
     nodes.push(element("h3", "", "Cost"), factsNode(costFacts(cost)));
   }
-  const authorization = recordedAuthorization(attempt);
-  if (authorization !== null) {
-    nodes.push(element("h3", "", "Authorization"), factsNode(authorizationFacts(authorization)));
-  }
+  nodes.push(
+    element("h3", "", "Authorization"),
+    factsNode(authorizationFacts(labels.recordedAuthorization(attempt))),
+  );
   nodes.push(
     ...sectionNodes("Arguments", attempt.args),
     ...outcomeNodes(
@@ -458,7 +434,7 @@ function showAttemptDetail(attempt) {
 }
 
 function rowButton(cells, status, show) {
-  const button = element("button", `row ${status}`);
+  const button = element("button", `row ${labels.statusClass(status)}`);
   button.type = "button";
   button.append(...cells);
   const position = rows.length;
@@ -564,7 +540,7 @@ function showRunFile(file) {
       element("span", "", "the run"),
       element("span", "", durationText(secondsBetween(run.created_at, run.finished_at ?? ""))),
       element("span", "", runCostText(cost)),
-      element("span", "status", run.status),
+      element("span", "status", labels.statusLabel(run.status)),
     ],
     run.status,
     () => showRunDetail(run, attempts.length, cost),
