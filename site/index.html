@@ -27,8 +27,13 @@
       </p>
     </header>
     <p id="status" role="status">Loading the sample run.</p>
+    <p id="experiment-note" dir="auto" hidden></p>
     <p id="chain-note">This page shows what the file says and does not check its hash chain.</p>
     <form id="controls">
+      <label id="run-picker-label" hidden>
+        Choose a run
+        <select id="run-picker"></select>
+      </label>
       <label>
         Open a run file
         <input id="file" type="file" accept=".json,application/json">

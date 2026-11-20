@@ -76,6 +76,13 @@ header p {
   color: var(--quiet);
 }
 
+#experiment-note {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border-inline-start: 3px solid var(--accent);
+  font-size: 0.875rem;
+}
+
 #status.problem {
   color: var(--failed);
 }
@@ -177,6 +184,10 @@ h3 small {
   }
 }
 
+.row .status {
+  white-space: normal;
+}
+
 .row.error .status,
 .row.failed .status {
   color: var(--failed);
@@ -261,7 +272,8 @@ a {
   color: var(--quiet);
 }
 
-#controls input {
+#controls input,
+#controls select {
   font: inherit;
 }
 
