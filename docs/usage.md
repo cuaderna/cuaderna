@@ -36,6 +36,8 @@ asyncio.run(main())
 
 Running it again with the same run id resumes the run if it did not finish, and returns the stored result if it did. Arguments and results are stored as JSON, so every parameter and return value of a step needs a type annotation.
 
+A step that fails is tried again up to `max_attempts` times, waiting `backoff_seconds` and doubling it between attempts. `timeout_seconds` bounds one attempt of an async step: when it passes, the attempt is cancelled and recorded as a failed attempt with the error type `StepTimeoutError`, which is retried like any other failure. A `TimeoutError` the step raises itself keeps its own type. A step that swallows the cancellation and keeps going is not bounded. A sync step cannot have a timeout, because a thread cannot be cancelled and its effect could land after the retry started; `@cuaderna.step(timeout_seconds=...)` on one raises `InvalidDefinitionError`, so use the timeout of the client it calls (httpx, subprocess) or write an async step.
+
 The code between steps runs again on every resume and has to decide the same thing each time:
 
 - Read the clock, random numbers and new ids through `await cuaderna.now()`, `await cuaderna.random()` and `await cuaderna.new_id()`, which are recorded like any other step.

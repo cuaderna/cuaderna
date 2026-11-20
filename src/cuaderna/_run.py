@@ -20,6 +20,7 @@ class StepDefinition:
     codec: Codec[Any]
     max_attempts: int
     backoff_seconds: float
+    timeout_seconds: float | None = None
     is_library: bool = False
 
 

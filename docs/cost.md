@@ -65,7 +65,7 @@ except cuaderna.BudgetExceededError as stop:
     await engine.execute("fix-123", fix_tests.with_budget("5.00"), "path/to/repo")
 ```
 
-- A budget counts the calls whose step annotated usage or a cost. The check is before every step attempt, retries included, and once the counted cost has reached the budget or gone past it, the step call raises `BudgetExceededError` and no attempt is recorded. A model call that was not annotated costs nothing as far as the budget knows, so a run whose steps never annotate is never stopped by it.
+- A budget counts the calls whose step annotated usage or a cost. The check is before every step attempt, retries included, and once the counted cost has reached the budget or gone past it, the step call raises `BudgetExceededError` and no attempt is recorded. A model call that was not annotated costs nothing as far as the budget knows, so a run whose steps never annotate is never stopped by it. Annotate the request model before the call, not after the response, so that a call cut off by `timeout_seconds` is recorded as a model call of unknown cost instead of a free one.
 - Spent is the sum of the cost of every attempt in the journal, failed ones and those of earlier workers included. It is read from the journal when the run is claimed, so a crash does not reset it.
 - The run is not failed. It stays unfinished with its journal, and executing it again with a higher budget continues from where it stopped and pays only for what is missing. With the same budget it raises again before running any step.
 - Catching the error inside the run function does not get past it: every later step call raises it again, and `execute` raises it when the function ends.

@@ -51,7 +51,11 @@ def step[**P, R](function: Callable[P, R], /) -> _AsyncFunction[P, R]: ...
 
 @overload
 def step(
-    *, name: str | None = None, max_attempts: int = 1, backoff_seconds: float = 1.0
+    *,
+    name: str | None = None,
+    max_attempts: int = 1,
+    backoff_seconds: float = 1.0,
+    timeout_seconds: float | None = None,
 ) -> _StepDecorator: ...
 
 
@@ -62,9 +66,14 @@ def step(
     name: str | None = None,
     max_attempts: int = 1,
     backoff_seconds: float = 1.0,
+    timeout_seconds: float | None = None,
 ) -> Any:
     define = functools.partial(
-        _define, name=name, max_attempts=max_attempts, backoff_seconds=backoff_seconds
+        _define,
+        name=name,
+        max_attempts=max_attempts,
+        backoff_seconds=backoff_seconds,
+        timeout_seconds=timeout_seconds,
     )
     if function is None:
         return define
@@ -100,7 +109,14 @@ def library_step[**P, R](
     name: str,
 ) -> Callable[[_AsyncFunction[P, R]], _AsyncFunction[P, R]]:
     def decorate(function: _AsyncFunction[P, R]) -> _AsyncFunction[P, R]:
-        return _define(function, name=name, max_attempts=1, backoff_seconds=1.0, is_library=True)
+        return _define(
+            function,
+            name=name,
+            max_attempts=1,
+            backoff_seconds=1.0,
+            timeout_seconds=None,
+            is_library=True,
+        )
 
     return decorate
 
@@ -111,6 +127,7 @@ def _define(
     name: str | None,
     max_attempts: int,
     backoff_seconds: float,
+    timeout_seconds: float | None,
     is_library: bool = False,
 ) -> _AsyncFunction[..., Any]:
     step_name = name or _default_name(function)
@@ -122,6 +139,13 @@ def _define(
         raise InvalidDefinitionError(f"{step_name}: a step name cannot contain ':' or '#'")
     if max_attempts < 1:
         raise InvalidDefinitionError(f"{step_name}: max_attempts has to be at least 1")
+    if timeout_seconds is not None and timeout_seconds <= 0:
+        raise InvalidDefinitionError(f"{step_name}: timeout_seconds has to be greater than 0")
+    if timeout_seconds is not None and not inspect.iscoroutinefunction(function):
+        raise InvalidDefinitionError(
+            f"{step_name}: a sync step cannot be timed out because a thread cannot be "
+            "cancelled; make it an async step or use the timeout of the client it calls"
+        )
     if inspect.iscoroutinefunction(function):
         invoke: _AsyncFunction[..., Any] = function
     else:
@@ -132,6 +156,7 @@ def _define(
         build_codec(function, step_name),
         max_attempts,
         backoff_seconds,
+        timeout_seconds,
         is_library,
     )
 
