@@ -448,8 +448,9 @@
     if (entry.trial !== null) {
       label += `, trial ${entry.trial}`;
     }
+    label += `: ${entry.ended}`;
     if (entry.outcome !== null) {
-      label += `: ${entry.outcome}`;
+      label += `, injected text ${entry.outcome}`;
     }
     return label;
   }
