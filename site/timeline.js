@@ -7,14 +7,6 @@ const MODEL_FACTS = [
   ["input tokens read from cache", "gen_ai.usage.cache_read.input_tokens"],
   ["output tokens", "gen_ai.usage.output_tokens"],
 ];
-const COST_PART_LABELS = [
-  ["input", "input"],
-  ["cache read", "cache_read"],
-  ["cache write", "cache_write"],
-  ["output", "output"],
-  ["requests", "requests"],
-];
-const AMOUNT_PATTERN = /^\d+(\.\d+)?$/;
 const ZERO_AMOUNT_PATTERN = /^0(\.0+)?$/;
 const MISSING_PRICE_TABLE_REASON = "the model call was recorded without a price table";
 const UNREADABLE_COST_REASON = "the recorded cost cannot be read";
@@ -38,6 +30,19 @@ function element(tag, className, text) {
   if (text !== undefined) {
     node.textContent = text;
   }
+  return node;
+}
+
+function isolated(text) {
+  const node = document.createElement("bdi");
+  node.dir = "auto";
+  node.textContent = text;
+  return node;
+}
+
+function cell(className, text) {
+  const node = element("span", className);
+  node.append(isolated(text));
   return node;
 }
 
@@ -71,45 +76,6 @@ function parseRunFile(text) {
   return file;
 }
 
-function secondsBetween(start, end) {
-  return (Date.parse(end) - Date.parse(start)) / 1000;
-}
-
-function durationText(seconds) {
-  if (Number.isNaN(seconds)) {
-    return "not finished";
-  }
-  if (seconds < 0.001) {
-    return "under 1 ms";
-  }
-  if (seconds < 1) {
-    return `${Math.round(seconds * 1000)} ms`;
-  }
-  if (seconds < 60) {
-    return `${seconds.toFixed(1)} s`;
-  }
-  return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
-}
-
-function decimalPlaces(amount) {
-  const [, fraction = ""] = amount.split(".");
-  return fraction.length;
-}
-
-function sumOfAmounts(amounts) {
-  const places = Math.max(0, ...amounts.map(decimalPlaces));
-  let scaledTotal = 0n;
-  for (const amount of amounts) {
-    const [whole, fraction = ""] = amount.split(".");
-    scaledTotal += BigInt(whole + fraction.padEnd(places, "0"));
-  }
-  const digits = scaledTotal.toString().padStart(places + 1, "0");
-  if (places === 0) {
-    return digits;
-  }
-  return `${digits.slice(0, -places)}.${digits.slice(-places)}`;
-}
-
 function isModelCall(attempt) {
   return Object.keys(attempt.annotations ?? {}).some((key) => key.startsWith("gen_ai."));
 }
@@ -120,6 +86,7 @@ function costFromRecord(recorded, usd, basis, reason) {
     basis,
     reason,
     parts: recorded.parts ?? null,
+    partsAgree: usd === null || labels.costPartsAgree(usd, recorded.parts ?? null),
     priceTable: recorded.price_table ?? null,
     priceTableHash: recorded.price_table_hash ?? null,
     model: recorded.model ?? null,
@@ -146,7 +113,7 @@ function attemptCost(attempt) {
     const reason = typeof recorded.reason === "string" ? recorded.reason : UNREADABLE_COST_REASON;
     return costFromRecord(recorded, null, "unknown", reason);
   }
-  if (typeof recorded.usd !== "string" || !AMOUNT_PATTERN.test(recorded.usd)) {
+  if (!labels.isAmount(recorded.usd)) {
     return unknownCost(UNREADABLE_COST_REASON);
   }
   return costFromRecord(recorded, recorded.usd, recorded.basis ?? null, recorded.reason ?? null);
@@ -159,8 +126,10 @@ function runCost(attempts) {
   }
   const knownAmounts = costs.filter((cost) => cost.usd !== null).map((cost) => cost.usd);
   return {
-    total: sumOfAmounts(knownAmounts),
+    total: labels.sumOfAmounts(knownAmounts),
+    knownCount: knownAmounts.length,
     unknownCount: costs.length - knownAmounts.length,
+    disagreeingCount: costs.filter((cost) => !cost.partsAgree).length,
   };
 }
 
@@ -168,15 +137,18 @@ function attemptCostText(cost) {
   if (cost === null) {
     return "";
   }
-  if (cost.usd === null) {
-    return "unknown cost";
-  }
-  return `${cost.usd} USD`;
+  return labels.costText(cost.usd);
 }
 
 function runCostText(cost) {
   if (cost === null) {
     return "";
+  }
+  if (cost.knownCount === 0) {
+    return "unknown";
+  }
+  if (cost.unknownCount > 0) {
+    return `${cost.total} USD + ${cost.unknownCount} unknown`;
   }
   return `${cost.total} USD`;
 }
@@ -192,7 +164,7 @@ function costPartFacts(parts) {
   if (parts === null || typeof parts !== "object") {
     return [];
   }
-  return COST_PART_LABELS.filter(
+  return labels.COST_PART_LABELS.filter(
     ([, key]) => typeof parts[key] === "string" && !ZERO_AMOUNT_PATTERN.test(parts[key]),
   ).map(([label, key]) => [label, `${parts[key]} USD`]);
 }
@@ -202,12 +174,13 @@ function costFacts(cost) {
   if (cost.variant !== null) {
     variant = JSON.stringify(cost.variant);
   }
-  let amount = "unknown";
-  if (cost.usd !== null) {
-    amount = `${cost.usd} USD`;
+  let check = null;
+  if (!cost.partsAgree) {
+    check = "the parts do not add up to the cost";
   }
   const facts = [
-    ["cost", amount],
+    ["cost", labels.costText(cost.usd)],
+    ["check", check],
     ["basis", cost.basis],
     ["why", cost.reason],
     ["price table", priceTableText(cost)],
@@ -323,14 +296,20 @@ function leaseGroups(attempts) {
 
 function valueNode(value) {
   if (typeof value === "string") {
-    return element("pre", "", value);
+    const pre = element("pre");
+    pre.append(isolated(value));
+    return pre;
   }
   if (value === null || typeof value !== "object") {
-    return element("code", "", JSON.stringify(value));
+    const code = element("code");
+    code.append(isolated(JSON.stringify(value)));
+    return code;
   }
   const entries = Object.entries(value);
   if (entries.length === 0) {
-    return element("code", "", JSON.stringify(value));
+    const code = element("code");
+    code.append(isolated(JSON.stringify(value)));
+    return code;
   }
   return factsNode(entries.map(([name, inner]) => [name, valueNode(inner)]));
 }
@@ -338,9 +317,15 @@ function valueNode(value) {
 function factsNode(facts) {
   const list = element("dl");
   for (const [name, content] of facts) {
+    const term = element("dt");
+    term.append(isolated(name));
     const description = element("dd");
-    description.append(content);
-    list.append(element("dt", "", name), description);
+    if (typeof content === "string") {
+      description.append(isolated(content));
+    } else {
+      description.append(content);
+    }
+    list.append(term, description);
   }
   return list;
 }
@@ -359,8 +344,9 @@ function outcomeNodes(succeeded, failed, result, error) {
   return [];
 }
 
-function detailTitle(text) {
-  const title = element("h2", "", text);
+function detailTitle(...parts) {
+  const title = element("h2");
+  title.append(...parts);
   title.id = "detail-title";
   return title;
 }
@@ -379,9 +365,12 @@ function showRunDetail(run, attemptCount, cost) {
       ["cost", runCostText(cost)],
       ["attempts of unknown cost", String(cost.unknownCount)],
     );
+    if (cost.disagreeingCount > 0) {
+      facts.push(["attempts whose parts do not add up", String(cost.disagreeingCount)]);
+    }
   }
   detail.replaceChildren(
-    detailTitle(`Run ${run.run_id}`),
+    detailTitle("Run ", isolated(run.run_id)),
     factsNode(facts),
     ...sectionNodes("Input", run.input),
     ...outcomeNodes(run.status === "completed", run.status === "failed", run.output, run.error),
@@ -395,14 +384,14 @@ function showAttemptDetail(attempt) {
     String(annotations[key]),
   ]);
   const nodes = [
-    detailTitle(attempt.step_key),
+    detailTitle(isolated(attempt.step_key)),
     factsNode([
       ["function", attempt.name],
       ["attempt", String(attempt.attempt)],
       ["status", attempt.status],
       ["started", attempt.started_at],
       ["finished", attempt.finished_at],
-      ["duration", durationText(secondsBetween(attempt.started_at, attempt.finished_at))],
+      ["duration", labels.durationText(attempt.started_at, attempt.finished_at)],
       ["lease token", String(attempt.lease_token ?? "not recorded")],
       ["chain hash", labels.chainText(attempt.chain_hash)],
     ]),
@@ -470,16 +459,16 @@ function selectRow(position) {
 }
 
 function attemptRow(attempt, longestSeconds) {
-  const seconds = secondsBetween(attempt.started_at, attempt.finished_at);
+  const seconds = labels.validSeconds(attempt.started_at, attempt.finished_at) ?? 0;
   const bar = element("span", "bar");
   bar.style.setProperty("--share", String(seconds / longestSeconds));
   const button = rowButton(
     [
-      element("span", "key", attempt.step_key),
-      element("span", "", `attempt ${attempt.attempt}`),
-      element("span", "", durationText(seconds)),
-      element("span", "", attemptCostText(attemptCost(attempt))),
-      element("span", "status", rowStatusText(attempt)),
+      cell("key", attempt.step_key),
+      cell("", `attempt ${attempt.attempt}`),
+      cell("", labels.durationText(attempt.started_at, attempt.finished_at)),
+      cell("", attemptCostText(attemptCost(attempt))),
+      cell("status", rowStatusText(attempt)),
       bar,
     ],
     attempt.status,
@@ -493,54 +482,66 @@ function attemptRow(attempt, longestSeconds) {
 function takeoverNote(previousGroup, group) {
   const stopped = previousGroup.rows.at(-1).attempt.finished_at;
   const continued = group.rows[0].attempt.started_at;
-  const gap = durationText(secondsBetween(stopped, continued));
+  const gap = labels.durationText(stopped, continued);
+  let timing = `started its first step ${gap} later`;
+  if (gap === "invalid time") {
+    timing = "started at a recorded time that is invalid";
+  }
   return element(
     "li",
     "takeover",
-    `The process holding the run stopped here or gave the run back. Another one continued it and started its first step ${gap} later. If a step was executing when the first one stopped, it left no record and starts again below.`,
+    `The process holding the run stopped here or gave the run back. Another one continued it and ${timing}. If a step was executing when the first one stopped, it left no record and starts again below.`,
   );
 }
 
 function groupItem(group, position, longestSeconds) {
   const item = element("li");
   const title = element("h3", "", `Process ${position}`);
-  let lease = "lease not recorded";
-  if (group.leaseToken !== null) {
-    lease = `lease token ${group.leaseToken}`;
+  const small = element("small", "", " ");
+  if (group.leaseToken === null) {
+    small.append("lease not recorded");
+  } else {
+    small.append("lease token ", isolated(String(group.leaseToken)));
   }
-  title.append(element("small", "", ` ${lease}, ${group.rows.length} attempts`));
+  small.append(`, ${group.rows.length} attempts`);
+  title.append(small);
   const rows = element("ol");
   rows.append(...group.rows.map(({ attempt }) => attemptRow(attempt, longestSeconds)));
   item.append(title, rows);
   return item;
 }
 
-function statusText(run, attemptCount, cost) {
-  let text = `Showing run ${run.run_id}: ${attemptCount} attempts, ${run.status}`;
+function statusNodes(run, attemptCount, cost) {
+  const nodes = [
+    "Showing run ",
+    isolated(run.run_id),
+    `: ${attemptCount} attempts, `,
+    isolated(labels.statusLabel(run.status)),
+  ];
   if (cost !== null) {
-    text += `, ${runCostText(cost)}`;
-    if (cost.unknownCount > 0) {
-      text += `, ${cost.unknownCount} of unknown cost`;
+    nodes.push(`, ${runCostText(cost)}`);
+    if (cost.disagreeingCount > 0) {
+      nodes.push(`, ${cost.disagreeingCount} with parts that do not add up`);
     }
   }
-  return `${text}.`;
+  return [...nodes, "."];
 }
 
 function showRunFile(file) {
   const { run, attempts } = file;
   rows = [];
-  const durations = attempts.map((attempt) =>
-    secondsBetween(attempt.started_at, attempt.finished_at),
+  const durations = attempts.map(
+    (attempt) => labels.validSeconds(attempt.started_at, attempt.finished_at) ?? 0,
   );
   const longestSeconds = Math.max(...durations, 0.001);
   const cost = runCost(attempts);
   const runButton = rowButton(
     [
-      element("span", "key", run.name),
-      element("span", "", "the run"),
-      element("span", "", durationText(secondsBetween(run.created_at, run.finished_at ?? ""))),
-      element("span", "", runCostText(cost)),
-      element("span", "status", labels.statusLabel(run.status)),
+      cell("key", run.name),
+      cell("", "the run"),
+      cell("", labels.durationText(run.created_at, run.finished_at ?? "")),
+      cell("", runCostText(cost)),
+      cell("status", labels.statusLabel(run.status)),
     ],
     run.status,
     () => showRunDetail(run, attempts.length, cost),
@@ -562,7 +563,7 @@ function showRunFile(file) {
   scrubber.max = String(attempts.length);
   selectRow(0);
   statusLine.classList.remove("problem");
-  statusLine.textContent = statusText(run, attempts.length, cost);
+  statusLine.replaceChildren(...statusNodes(run, attempts.length, cost));
 }
 
 function showProblem(message) {

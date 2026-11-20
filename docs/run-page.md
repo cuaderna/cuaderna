@@ -20,6 +20,8 @@ The run was recorded under an earlier version of the policy in [examples/fix_tes
 
 Any other run file can be picked or dropped on the page. It is read in the browser and not uploaded.
 
+The page shows what the file says and nothing more. A status it does not know is shown as an unknown status, a cost that is missing or cannot be read as "unknown", a time that is negative or out of range as "invalid time", and an authorization that is missing or unreadable as "not recorded" or "unreadable", never as "ok". Each attempt says whether it carries a chain hash, but the page does not check the chain: use `verify` for that. The labels are plain functions in [site/labels.js](../site/labels.js), tested with `node --test site/labels.test.js`.
+
 Two numbers from that run, measured on the machine that recorded it:
 
 - Its five attempts, with source code and pytest output among their arguments and results, make a file of 9,019 bytes, about 1.8 kB per attempt.
