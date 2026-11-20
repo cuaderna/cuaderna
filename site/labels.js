@@ -7,12 +7,19 @@
     failed: "failed",
     imported_unfinished: "imported_unfinished",
   };
-  const RUN_FILE_FORMAT = "cuaderna.run/1";
+  const RUN_FILE_FORMATS = ["cuaderna.run/1", "cuaderna.run/2"];
   const MAX_FILE_BYTES = 16 * 1024 * 1024;
   const MAX_VALUE_DEPTH = 64;
   const AMOUNT_PATTERN = /^\d{1,30}(\.\d{1,30})?$/;
   const TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
   const AUTHORIZATION_REASONS = ["rule", "no_rule", "unevaluable", "rejected"];
+  const FAULT_KINDS = ["raise", "return", "append"];
+  const MAX_INDEX_ENTRIES = 200;
+  const MAX_INDEX_TEXT_LENGTH = 200;
+  const INDEX_KINDS = ["source", "control", "experiment"];
+  const INDEX_KEYS = ["file", "run_id", "kind", "fault", "trial", "ended", "outcome"];
+  const INDEX_FILE_PATTERN = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*\.json$/;
+  const INDEX_RANKS = { source: 0, control: 1, experiment: 2 };
   const COST_PART_LABELS = [
     ["input", "input"],
     ["cache read", "cache_read"],
@@ -146,7 +153,7 @@
     const isRunFile =
       file !== null &&
       typeof file === "object" &&
-      file.format === RUN_FILE_FORMAT &&
+      RUN_FILE_FORMATS.includes(file.format) &&
       hasTextFields(file.run, ["run_id", "name", "status", "created_at"]) &&
       Array.isArray(file.attempts) &&
       file.attempts.every(
@@ -155,7 +162,7 @@
           hasObjectOrNoAnnotations(attempt),
       );
     if (!isRunFile) {
-      throw new Error(`This is not a run file in the ${RUN_FILE_FORMAT} format.`);
+      throw new Error(`This is not a run file in the ${RUN_FILE_FORMATS.join(" or ")} format.`);
     }
     return file;
   }
@@ -223,19 +230,257 @@
     return "unreadable";
   }
 
+  function isText(value) {
+    return typeof value === "string";
+  }
+
+  function isTextOrNull(value) {
+    return value === null || isText(value);
+  }
+
+  function isObject(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function recordedFault(attempt) {
+    const recorded = attempt.annotations?.["cuaderna.fault"];
+    if (recorded === undefined) {
+      return null;
+    }
+    const isReadable =
+      isObject(recorded) &&
+      FAULT_KINDS.includes(recorded.kind) &&
+      isText(recorded.fault_id) &&
+      typeof recorded.executed === "boolean";
+    if (!isReadable) {
+      return { unreadable: true };
+    }
+    return recorded;
+  }
+
+  function recordedReuse(attempt) {
+    const recorded = attempt.annotations?.["cuaderna.reuse"];
+    if (recorded === undefined) {
+      return null;
+    }
+    const isReadable =
+      isObject(recorded) &&
+      isText(recorded.run_id) &&
+      isText(recorded.step_key) &&
+      Number.isInteger(recorded.attempt);
+    if (!isReadable) {
+      return { unreadable: true };
+    }
+    return recorded;
+  }
+
+  function attemptMarks(attempt) {
+    const marks = [];
+    if (recordedFault(attempt) !== null) {
+      marks.push("injected");
+    }
+    if (recordedReuse(attempt) !== null) {
+      marks.push("from the recording");
+    }
+    return marks;
+  }
+
+  function recordedExperiment(run) {
+    const recorded = run.experiment;
+    if (recorded === undefined || recorded === null) {
+      return null;
+    }
+    const isReadable =
+      isObject(recorded) &&
+      isText(recorded.source_run_id) &&
+      Array.isArray(recorded.reuse) &&
+      recorded.reuse.every(isText) &&
+      isTextOrNull(recorded.plan_id) &&
+      isTextOrNull(recorded.plan_hash) &&
+      isTextOrNull(recorded.fault_id);
+    if (!isReadable) {
+      return { unreadable: true };
+    }
+    return recorded;
+  }
+
+  function wasInjectedWithoutRunning(attempt) {
+    const fault = recordedFault(attempt);
+    return fault !== null && fault.executed === false;
+  }
+
+  function executedForReal(attempt) {
+    if (recordedReuse(attempt) !== null || wasInjectedWithoutRunning(attempt)) {
+      return false;
+    }
+    return authorizationLabel(recordedAuthorization(attempt)) !== "denied";
+  }
+
+  function experimentFacts(file) {
+    const experiment = recordedExperiment(file.run);
+    if (experiment === null || experiment.unreadable) {
+      return experiment;
+    }
+    const faulted = file.attempts.find((attempt) => {
+      const fault = recordedFault(attempt);
+      return fault !== null && !fault.unreadable;
+    });
+    const executedAgain = file.attempts.find(
+      (attempt) => experiment.reuse.includes(attempt.name) && executedForReal(attempt),
+    );
+    return {
+      sourceRunId: experiment.source_run_id,
+      faultId: experiment.fault_id,
+      faultStep: faulted?.step_key ?? null,
+      executedAgainStep: executedAgain?.step_key ?? null,
+      executedAgainAttempt: executedAgain?.attempt ?? null,
+    };
+  }
+
+  function faultSentence(facts) {
+    if (facts.faultId === null) {
+      return "Nothing was changed.";
+    }
+    if (facts.faultStep === null) {
+      return `Fault ${facts.faultId} was planned but no step carries it.`;
+    }
+    return `Fault ${facts.faultId} was applied at step ${facts.faultStep}.`;
+  }
+
+  function experimentLine(facts) {
+    if (facts === null) {
+      return null;
+    }
+    if (facts.unreadable) {
+      return "This run says it is an experiment, but the page cannot read that part of the file.";
+    }
+    const sentences = [
+      "This is an experiment, not something that happened.",
+      `It replays run ${facts.sourceRunId}.`,
+      faultSentence(facts),
+    ];
+    if (facts.executedAgainStep !== null) {
+      sentences.push(
+        `The first step executed again for real was ${facts.executedAgainStep}, attempt ${facts.executedAgainAttempt}.`,
+      );
+    }
+    return sentences.join(" ");
+  }
+
+  function isIndexText(value) {
+    return isText(value) && value.length <= MAX_INDEX_TEXT_LENGTH;
+  }
+
+  function isIndexFile(value) {
+    if (!isIndexText(value) || !INDEX_FILE_PATTERN.test(value) || value.includes("..")) {
+      return false;
+    }
+    return !value.split("/").includes(".");
+  }
+
+  function isIndexEntry(entry) {
+    if (!isObject(entry) || !Object.keys(entry).every((key) => INDEX_KEYS.includes(key))) {
+      return false;
+    }
+    return (
+      isIndexFile(entry.file) &&
+      isIndexText(entry.run_id) &&
+      INDEX_KINDS.includes(entry.kind) &&
+      (entry.fault === null || isIndexText(entry.fault)) &&
+      (entry.trial === null || Number.isInteger(entry.trial)) &&
+      isIndexText(entry.ended) &&
+      (entry.outcome === null || isIndexText(entry.outcome))
+    );
+  }
+
+  function parseRunIndex(text) {
+    let index;
+    try {
+      index = JSON.parse(text);
+    } catch {
+      throw new Error("The run index is not JSON.");
+    }
+    const isIndex =
+      Array.isArray(index) && index.length <= MAX_INDEX_ENTRIES && index.every(isIndexEntry);
+    if (!isIndex) {
+      throw new Error("The run index is not valid.");
+    }
+    return index;
+  }
+
+  function compareNullsLast(first, second) {
+    if (first === second) {
+      return 0;
+    }
+    if (first === null) {
+      return 1;
+    }
+    if (second === null) {
+      return -1;
+    }
+    return first < second ? -1 : 1;
+  }
+
+  function compareChoices(first, second) {
+    const byKind = INDEX_RANKS[first.entry.kind] - INDEX_RANKS[second.entry.kind];
+    if (byKind !== 0) {
+      return byKind;
+    }
+    const byFault = compareNullsLast(first.entry.fault, second.entry.fault);
+    if (byFault !== 0) {
+      return byFault;
+    }
+    const byTrial = compareNullsLast(first.entry.trial, second.entry.trial);
+    if (byTrial !== 0) {
+      return byTrial;
+    }
+    return first.position - second.position;
+  }
+
+  function choiceLabel(entry) {
+    if (entry.kind === "source") {
+      return "what was recorded";
+    }
+    if (entry.kind === "control") {
+      return "replayed with nothing changed";
+    }
+    let label = entry.fault ?? "experiment";
+    if (entry.trial !== null) {
+      label += `, trial ${entry.trial}`;
+    }
+    if (entry.outcome !== null) {
+      label += `: ${entry.outcome}`;
+    }
+    return label;
+  }
+
+  function pickerChoices(entries) {
+    return entries
+      .map((entry, position) => ({ entry, position }))
+      .sort(compareChoices)
+      .map(({ entry }) => ({ file: entry.file, label: choiceLabel(entry) }));
+  }
+
   globalThis.cuadernaLabels = {
     AMOUNT_PATTERN,
     COST_PART_LABELS,
     MAX_VALUE_DEPTH,
+    attemptMarks,
     authorizationLabel,
     chainText,
     costPartsAgree,
     costText,
     durationText,
+    experimentFacts,
+    experimentLine,
     fileSizeProblem,
     isAmount,
     parseRunFile,
+    parseRunIndex,
+    pickerChoices,
     recordedAuthorization,
+    recordedFault,
+    recordedReuse,
     statusClass,
     statusLabel,
     sumOfAmounts,
