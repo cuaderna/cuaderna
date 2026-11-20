@@ -19,6 +19,7 @@ from ._errors import (
     BudgetExceededError,
     CostUnknownError,
     PermissionDeniedError,
+    StepLimitExceededError,
     StepMismatchError,
 )
 from ._policy import Decision, Policy
@@ -29,7 +30,7 @@ from ._serde import describe_error, hash_arguments, load_error
 from ._step import ActiveStep, active_step, retry_delay, step_failed
 from .storage import Storage
 
-StopError = BudgetExceededError | CostUnknownError | ApprovalRequiredError
+StopError = BudgetExceededError | CostUnknownError | ApprovalRequiredError | StepLimitExceededError
 
 
 @dataclass(slots=True)
@@ -62,6 +63,8 @@ class RecordingContext:
     recorded: dict[str, StepAttempt]
     prices: PriceTable | None = None
     budget: Budget | None = None
+    max_steps: int | None = None
+    attempts_recorded: int = 0
     policy: Policy | None = None
     actor: str | None = None
     step_keys: StepKeys = field(default_factory=StepKeys)
@@ -97,6 +100,12 @@ class RecordingContext:
                     raise recorded_failure(step_key, recorded, details)
             first_attempt = recorded.attempt + 1
         for attempt in range(first_attempt, definition.max_attempts + 1):
+            if self.max_steps is not None and self.attempts_recorded >= self.max_steps:
+                self._stop(
+                    StepLimitExceededError(
+                        self.lease.run_id, self.max_steps, self.attempts_recorded
+                    )
+                )
             authorization = await self._authorize(definition, step_key, attempt, args_json)
             if self.budget is not None:
                 stop = self.budget.stop()
@@ -236,6 +245,7 @@ class RecordingContext:
 
     async def _record(self, attempt: StepAttempt) -> None:
         await self.storage.record_attempt(self.lease, attempt)
+        self.attempts_recorded += 1
         if self.budget is not None:
             self.budget.add(attempt)
 

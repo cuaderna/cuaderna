@@ -1,6 +1,6 @@
 # Cost and budgets
 
-How a model call gets its cost, how a run is stopped at a budget, and how to compare models.
+How a model call gets its cost, how a budget and a step limit hold a run back, and how to compare models.
 
 cuaderna ships no prices. Providers change them by announcement, and an amount stored in a journal should say whose numbers produced it, so the price table is a file you write and keep next to your code:
 
@@ -65,13 +65,25 @@ except cuaderna.BudgetExceededError as stop:
     await engine.execute("fix-123", fix_tests.with_budget("5.00"), "path/to/repo")
 ```
 
-- The check is before every step attempt, retries included. Once the run has spent its budget or more, the step call raises `BudgetExceededError` and no attempt is recorded.
+- A budget counts the calls whose step annotated usage or a cost. The check is before every step attempt, retries included, and once the counted cost has reached the budget or gone past it, the step call raises `BudgetExceededError` and no attempt is recorded. A model call that was not annotated costs nothing as far as the budget knows, so a run whose steps never annotate is never stopped by it.
 - Spent is the sum of the cost of every attempt in the journal, failed ones and those of earlier workers included. It is read from the journal when the run is claimed, so a crash does not reset it.
 - The run is not failed. It stays unfinished with its journal, and executing it again with a higher budget continues from where it stopped and pays only for what is missing. With the same budget it raises again before running any step.
 - Catching the error inside the run function does not get past it: every later step call raises it again, and `execute` raises it when the function ends.
 - An unknown cost stops the run too. A ceiling that skips what it cannot price is worse than none, so with a budget set an attempt of unknown cost makes the next step call raise `CostUnknownError`, which says which attempt it was and why. The run stays unfinished in the same way. When it is executed again, attempts of unknown cost are priced with the table the engine has now, from the usage stored with them, so adding the missing model to the table and executing again is the whole fix. The journal keeps what was recorded: `engine.cost` still shows that attempt as unknown. Without a budget nothing stops.
-- Nothing is reserved before a call, because the size of an answer is not known beforehand. A run can go past its ceiling by the cost of the steps that were already in flight when it was crossed: one, or as many as it started together with `asyncio.gather`. A call in flight when the process dies leaves no attempt in the journal, so it was paid and is not in the sum.
+- Nothing is reserved before a call, because the size of an answer is not known beforehand, and the check happens before a step call, not during it. A run can go past its ceiling by the cost of the steps that were already in flight when it was crossed: one, or as many as it started together with `asyncio.gather`. A call in flight when the process dies leaves no attempt in the journal, so it was paid and is not in the sum.
 - `with_budget` returns the same run with another ceiling, for limits that depend on who asks. A budget needs an engine with a price table; without one `execute` raises `InvalidDefinitionError`.
+
+## A limit on steps
+
+```python
+engine = cuaderna.Engine("cuaderna.db", max_steps=200)
+```
+
+`max_steps` is the limit that does not depend on annotations. It caps the attempts recorded for a run, retries included, over the whole life of the run. A resumed run counts what its journal already holds, and replaying a recorded result does not count again.
+
+- When a step call would record an attempt past the cap, the body of the step does not run and the call raises `StepLimitExceededError`, which carries `run_id`, `limit` and `recorded`. The run is released and stays unfinished, like a run stopped at its budget, and executing it again with a higher cap continues from the journal.
+- The cap is an option of the engine, so it applies to every run that engine executes. Zero, a negative number and a boolean raise `InvalidDefinitionError` when the engine is created. Without it a run records as many attempts as it asks for, and the journal grows with them.
+- It bounds the number of attempts, not their size or their cost.
 
 ## What another model would have cost
 

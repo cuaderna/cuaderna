@@ -96,6 +96,16 @@ class BudgetExceededError(CuadernaError):
         self.spent_usd = spent_usd
 
 
+class StepLimitExceededError(CuadernaError):
+    def __init__(self, run_id: str, limit: int, recorded: int) -> None:
+        super().__init__(
+            f"run {run_id!r} has recorded {recorded} attempts and its limit is {limit}"
+        )
+        self.run_id = run_id
+        self.limit = limit
+        self.recorded = recorded
+
+
 class CostUnknownError(CuadernaError):
     def __init__(self, run_id: str, step_key: str, attempt: int, reason: str | None) -> None:
         super().__init__(
