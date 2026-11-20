@@ -7,7 +7,7 @@
       "max_rounds": 5,
       "model": "claude-haiku-5-5",
       "provider": "anthropic",
-      "repo": "/tmp/fix-tests/repo"
+      "repo": "C:\\fix-tests\\repo"
     },
     "code_version": null,
     "status": "failed",
@@ -15,12 +15,12 @@
     "error": {
       "type": "StepFailedError",
       "message": "step 'run_tests#2' failed with OSError: pytest could not be started",
-      "traceback": "Traceback (most recent call last):\n  File \"<cuaderna>\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"<cuaderna>\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<cuaderna>\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.OSError: pytest could not be started\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"<cuaderna>\\_engine.py\", line 439, in _drive\n    output = await run.function(*args, **kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<example>\\agent.py\", line 201, in fix_tests\n    report = await run_tests(repo)\n             ^^^^^^^^^^^^^^^^^^^^^\n  File \"<cuaderna>\\_rerun.py\", line 50, in execute_step\n    return await self.recording.execute_step(to_execute, step_key, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<cuaderna>\\_recording.py\", line 136, in execute_step\n    raise step_failed(step_key, details) from error\ncuaderna._errors.StepFailedError: step 'run_tests#2' failed with OSError: pytest could not be started\n",
+      "traceback": "Traceback (most recent call last):\n  File \"C:\\cuaderna\\src\\cuaderna\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.OSError: pytest could not be started\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"C:\\cuaderna\\src\\cuaderna\\_engine.py\", line 439, in _drive\n    output = await run.function(*args, **kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\examples\\fix_tests\\agent.py\", line 201, in fix_tests\n    report = await run_tests(repo)\n             ^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 50, in execute_step\n    return await self.recording.execute_step(to_execute, step_key, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\src\\cuaderna\\_recording.py\", line 136, in execute_step\n    raise step_failed(step_key, details) from error\ncuaderna._errors.StepFailedError: step 'run_tests#2' failed with OSError: pytest could not be started\n",
       "terminal": false
     },
-    "created_at": "2026-11-20T04:24:44.725287Z",
-    "finished_at": "2026-11-20T04:24:45.203685Z",
-    "seal": null,
+    "created_at": "2026-11-20T16:19:46.363954Z",
+    "finished_at": "2026-11-20T16:19:46.719419Z",
+    "seal": "5656cf5f0a6e8a68a044c2197c62537c15faeda7660a1a10bee3deea4579f3c8",
     "experiment": {
       "source_run_id": "fix-tests",
       "reuse": [
@@ -38,15 +38,15 @@
       "attempt": 1,
       "status": "ok",
       "args": {
-        "repo": "/tmp/fix-tests/repo"
+        "repo": "C:\\fix-tests\\repo"
       },
       "result": {
         "passed": false,
         "output": ".F\n================================== FAILURES ===================================\n________________ test_a_discount_is_a_percentage_of_the_amount ________________\n\n    def test_a_discount_is_a_percentage_of_the_amount() -> None:\n>       assert apply_discount(200.0, 10.0) == 180.0\nE       assert 190.0 == 180.0\nE        +  where 190.0 = apply_discount(200.0, 10.0)\n\ntest_pricing.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED test_pricing.py::test_a_discount_is_a_percentage_of_the_amount - asser...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 1 passed\n"
       },
       "error": null,
-      "started_at": "2026-11-20T04:24:44.727716Z",
-      "finished_at": "2026-11-20T04:24:45.192763Z",
+      "started_at": "2026-11-20T16:19:46.365407Z",
+      "finished_at": "2026-11-20T16:19:46.710425Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
@@ -62,7 +62,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "9daa21a634e4ec67a0a9fe896571ff81e9d8e2a917af882d16b864675364436c"
     },
     {
       "step_key": "read_sources#1",
@@ -70,14 +70,14 @@
       "attempt": 1,
       "status": "ok",
       "args": {
-        "repo": "/tmp/fix-tests/repo"
+        "repo": "C:\\fix-tests\\repo"
       },
       "result": {
         "pricing.py": "def subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price + quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - percent\n"
       },
       "error": null,
-      "started_at": "2026-11-20T04:24:45.194011Z",
-      "finished_at": "2026-11-20T04:24:45.194642Z",
+      "started_at": "2026-11-20T16:19:46.711693Z",
+      "finished_at": "2026-11-20T16:19:46.712336Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
@@ -93,7 +93,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "74a9cd4f913314e9bc8b36a9b6f67597aa49fa4ae08256d9ac5634517abcd775"
     },
     {
       "step_key": "ask_model#1",
@@ -113,8 +113,8 @@
         "content": "# pricing.py\ndef subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price * quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - amount * percent / 100\n"
       },
       "error": null,
-      "started_at": "2026-11-20T04:24:45.195749Z",
-      "finished_at": "2026-11-20T04:24:45.195798Z",
+      "started_at": "2026-11-20T16:19:46.713545Z",
+      "finished_at": "2026-11-20T16:19:46.713602Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.reuse": {
@@ -135,7 +135,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "ba6a84ff7e2278c7746ebf17d580f705069b958da8a1953944ed39c06f964125"
     },
     {
       "step_key": "write_file#1",
@@ -147,12 +147,12 @@
           "content": "# pricing.py\ndef subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price * quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - amount * percent / 100\n",
           "path": "pricing.py"
         },
-        "repo": "/tmp/fix-tests/repo"
+        "repo": "C:\\fix-tests\\repo"
       },
       "result": null,
       "error": null,
-      "started_at": "2026-11-20T04:24:45.197108Z",
-      "finished_at": "2026-11-20T04:24:45.197813Z",
+      "started_at": "2026-11-20T16:19:46.714881Z",
+      "finished_at": "2026-11-20T16:19:46.715494Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
@@ -168,7 +168,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "c805f2bf55608b473cf9e101055900cc0278eca7369444be04901096a6f7f57f"
     },
     {
       "step_key": "run_tests#2",
@@ -176,17 +176,17 @@
       "attempt": 1,
       "status": "error",
       "args": {
-        "repo": "/tmp/fix-tests/repo"
+        "repo": "C:\\fix-tests\\repo"
       },
       "result": null,
       "error": {
         "type": "OSError",
         "message": "pytest could not be started",
-        "traceback": "Traceback (most recent call last):\n  File \"<cuaderna>\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"<cuaderna>\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<cuaderna>\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.OSError: pytest could not be started\n",
+        "traceback": "Traceback (most recent call last):\n  File \"C:\\cuaderna\\src\\cuaderna\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.OSError: pytest could not be started\n",
         "terminal": false
       },
-      "started_at": "2026-11-20T04:24:45.199649Z",
-      "finished_at": "2026-11-20T04:24:45.200429Z",
+      "started_at": "2026-11-20T16:19:46.716560Z",
+      "finished_at": "2026-11-20T16:19:46.717192Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.fault": {
@@ -209,7 +209,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "b3606bd7c86eb8199b05ec3c5178d98f65cdf0dd69c668903f1845e046a1deb6"
     }
   ]
 }

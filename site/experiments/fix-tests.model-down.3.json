@@ -7,7 +7,7 @@
       "max_rounds": 5,
       "model": "claude-haiku-5-5",
       "provider": "anthropic",
-      "repo": "/tmp/fix-tests/repo"
+      "repo": "C:\\fix-tests\\repo"
     },
     "code_version": null,
     "status": "failed",
@@ -15,12 +15,12 @@
     "error": {
       "type": "StepFailedError",
       "message": "step 'ask_model#1' failed with ConnectionError: model unreachable",
-      "traceback": "Traceback (most recent call last):\n  File \"<cuaderna>\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"<cuaderna>\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<cuaderna>\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.ConnectionError: model unreachable\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"<cuaderna>\\_engine.py\", line 439, in _drive\n    output = await run.function(*args, **kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<example>\\agent.py\", line 195, in fix_tests\n    edit = await ask_model(provider, model, sources, report.output + refusal)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<cuaderna>\\_rerun.py\", line 50, in execute_step\n    return await self.recording.execute_step(to_execute, step_key, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<cuaderna>\\_recording.py\", line 136, in execute_step\n    raise step_failed(step_key, details) from error\ncuaderna._errors.StepFailedError: step 'ask_model#1' failed with ConnectionError: model unreachable\n",
+      "traceback": "Traceback (most recent call last):\n  File \"C:\\cuaderna\\src\\cuaderna\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.ConnectionError: model unreachable\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"C:\\cuaderna\\src\\cuaderna\\_engine.py\", line 439, in _drive\n    output = await run.function(*args, **kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\examples\\fix_tests\\agent.py\", line 195, in fix_tests\n    edit = await ask_model(provider, model, sources, report.output + refusal)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 50, in execute_step\n    return await self.recording.execute_step(to_execute, step_key, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\src\\cuaderna\\_recording.py\", line 136, in execute_step\n    raise step_failed(step_key, details) from error\ncuaderna._errors.StepFailedError: step 'ask_model#1' failed with ConnectionError: model unreachable\n",
       "terminal": false
     },
-    "created_at": "2026-11-20T04:24:40.750552Z",
-    "finished_at": "2026-11-20T04:24:44.240562Z",
-    "seal": null,
+    "created_at": "2026-11-20T16:19:42.625589Z",
+    "finished_at": "2026-11-20T16:19:45.988392Z",
+    "seal": "2448a96f4302ed75596451d75f989f3d1457e29b6514dc754f69752b05040d66",
     "experiment": {
       "source_run_id": "fix-tests",
       "reuse": [
@@ -38,15 +38,15 @@
       "attempt": 1,
       "status": "ok",
       "args": {
-        "repo": "/tmp/fix-tests/repo"
+        "repo": "C:\\fix-tests\\repo"
       },
       "result": {
         "passed": false,
         "output": ".F\n================================== FAILURES ===================================\n________________ test_a_discount_is_a_percentage_of_the_amount ________________\n\n    def test_a_discount_is_a_percentage_of_the_amount() -> None:\n>       assert apply_discount(200.0, 10.0) == 180.0\nE       assert 190.0 == 180.0\nE        +  where 190.0 = apply_discount(200.0, 10.0)\n\ntest_pricing.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED test_pricing.py::test_a_discount_is_a_percentage_of_the_amount - asser...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 1 passed\n"
       },
       "error": null,
-      "started_at": "2026-11-20T04:24:40.753186Z",
-      "finished_at": "2026-11-20T04:24:41.204768Z",
+      "started_at": "2026-11-20T16:19:42.627157Z",
+      "finished_at": "2026-11-20T16:19:42.963449Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
@@ -62,7 +62,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "bf04af09d5be539ca2e2efb4a5eb782fa72d2a2f71fe04dcd63b0b2452ffbb50"
     },
     {
       "step_key": "read_sources#1",
@@ -70,14 +70,14 @@
       "attempt": 1,
       "status": "ok",
       "args": {
-        "repo": "/tmp/fix-tests/repo"
+        "repo": "C:\\fix-tests\\repo"
       },
       "result": {
         "pricing.py": "def subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price + quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - percent\n"
       },
       "error": null,
-      "started_at": "2026-11-20T04:24:41.206060Z",
-      "finished_at": "2026-11-20T04:24:41.206759Z",
+      "started_at": "2026-11-20T16:19:42.964443Z",
+      "finished_at": "2026-11-20T16:19:42.964784Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
@@ -93,7 +93,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "cc618e5554cc9d43c1068ad9407f6b1456ad6ac344c1a58f776efc1588701365"
     },
     {
       "step_key": "ask_model#1",
@@ -112,11 +112,11 @@
       "error": {
         "type": "ConnectionError",
         "message": "model unreachable",
-        "traceback": "Traceback (most recent call last):\n  File \"<cuaderna>\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"<cuaderna>\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<cuaderna>\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.ConnectionError: model unreachable\n",
+        "traceback": "Traceback (most recent call last):\n  File \"C:\\cuaderna\\src\\cuaderna\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.ConnectionError: model unreachable\n",
         "terminal": false
       },
-      "started_at": "2026-11-20T04:24:41.207967Z",
-      "finished_at": "2026-11-20T04:24:41.208887Z",
+      "started_at": "2026-11-20T16:19:42.965660Z",
+      "finished_at": "2026-11-20T16:19:42.966026Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.fault": {
@@ -139,7 +139,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "d6102d0381eec48fa825e03a53132c54d0dafc9552dbb166740205fc99630b52"
     },
     {
       "step_key": "ask_model#1",
@@ -158,11 +158,11 @@
       "error": {
         "type": "ConnectionError",
         "message": "model unreachable",
-        "traceback": "Traceback (most recent call last):\n  File \"<cuaderna>\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"<cuaderna>\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<cuaderna>\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.ConnectionError: model unreachable\n",
+        "traceback": "Traceback (most recent call last):\n  File \"C:\\cuaderna\\src\\cuaderna\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.ConnectionError: model unreachable\n",
         "terminal": false
       },
-      "started_at": "2026-11-20T04:24:42.223625Z",
-      "finished_at": "2026-11-20T04:24:42.224534Z",
+      "started_at": "2026-11-20T16:19:43.972478Z",
+      "finished_at": "2026-11-20T16:19:43.972949Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.fault": {
@@ -185,7 +185,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "364e46583ce113eb4be3895cfdaf4ab447fe1a0fde2ad32004485b2d4165989c"
     },
     {
       "step_key": "ask_model#1",
@@ -204,11 +204,11 @@
       "error": {
         "type": "ConnectionError",
         "message": "model unreachable",
-        "traceback": "Traceback (most recent call last):\n  File \"<cuaderna>\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"<cuaderna>\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<cuaderna>\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.ConnectionError: model unreachable\n",
+        "traceback": "Traceback (most recent call last):\n  File \"C:\\cuaderna\\src\\cuaderna\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.ConnectionError: model unreachable\n",
         "terminal": false
       },
-      "started_at": "2026-11-20T04:24:44.236694Z",
-      "finished_at": "2026-11-20T04:24:44.237633Z",
+      "started_at": "2026-11-20T16:19:45.986357Z",
+      "finished_at": "2026-11-20T16:19:45.986817Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.fault": {
@@ -231,7 +231,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "e222a6f911078db097bb8bcfe06f4ee7ec01e88d10a17bfe9020d4a34da7ae7a"
     }
   ]
 }

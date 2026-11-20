@@ -106,7 +106,7 @@ The directory given on the command line is replaced by `/tmp/fix-tests` everywhe
 
 The chain hashes of a run cover the values as recorded, so a file with hidden paths cannot be checked with `verify`. `--keep-paths` exports the values as recorded and the file verifies; use it only where the paths say nothing you want to keep private, such as a work directory and a Python installation under neutral paths.
 
-[site/sample-run.json](../../site/sample-run.json) was written this way from one run and three processes: the first, with a budget of 0.00005 USD, was killed during its model call; the second, with the same budget, made the call again and was stopped by the budget; the third, with 0.01 USD, finished. `tests/test_sample_run.py` imports it and replays it against this agent, with no model and no repo.
+[site/sample-run.json](../../site/sample-run.json) was written with `--keep-paths` from one run and three processes: the first, with a budget of 0.00005 USD, was killed during its model call; the second, with the same budget, made the call again and was stopped by the budget; the third, with 0.01 USD, finished. `tests/test_sample_run.py` imports it and replays it against this agent, with no model and no repo.
 
 ## What to look at in the code
 

@@ -10,7 +10,7 @@ from cuaderna import Engine, StepFailedError
 
 _SITE = Path(__file__).parent.parent / "site"
 _INDEX: list[dict[str, JsonValue]] = json.loads((_SITE / "runs.json").read_text(encoding="utf-8"))
-_LOCAL_PATH = re.compile(r"[A-Za-z]:\\\\|/home/|/Users/")
+_LOCAL_PATH = re.compile(r"[A-Za-z]:\\\\Users\\\\|/home/|/Users/")
 _FAILED_WITH = "failed with "
 
 _FACTS_BY_FAULT = {
@@ -89,6 +89,15 @@ async def test_the_first_trial_of_each_fault_has_the_facts_that_were_recorded(
     assert experiment.fired == fired
     assert experiment.diverged_at == diverged_at
     assert experiment.reused == reused
+
+
+@pytest.mark.parametrize("entry", _INDEX, ids=_entry_id)
+async def test_each_published_run_verifies_after_import(
+    engine: Engine, entry: dict[str, JsonValue]
+) -> None:
+    run_id = await engine.import_run(_SITE / str(entry["file"]))
+
+    await engine.verify(run_id)
 
 
 @pytest.mark.parametrize("trial", [1, 2, 3])

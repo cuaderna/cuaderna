@@ -7,7 +7,7 @@
       "max_rounds": 5,
       "model": "claude-haiku-5-5",
       "provider": "anthropic",
-      "repo": "/tmp/fix-tests/repo"
+      "repo": "C:\\fix-tests\\repo"
     },
     "code_version": null,
     "status": "completed",
@@ -16,9 +16,9 @@
       "rounds": 1
     },
     "error": null,
-    "created_at": "2026-11-20T04:24:31.896754Z",
-    "finished_at": "2026-11-20T04:24:33.771345Z",
-    "seal": null,
+    "created_at": "2026-11-20T16:19:34.217558Z",
+    "finished_at": "2026-11-20T16:19:35.881708Z",
+    "seal": "a9c0c78059faa570dfb280e37136856f64d118348c21a4769ad0f83aaabcca6f",
     "experiment": {
       "source_run_id": "fix-tests",
       "reuse": [
@@ -36,15 +36,15 @@
       "attempt": 1,
       "status": "ok",
       "args": {
-        "repo": "/tmp/fix-tests/repo"
+        "repo": "C:\\fix-tests\\repo"
       },
       "result": {
         "passed": false,
         "output": ".F\n================================== FAILURES ===================================\n________________ test_a_discount_is_a_percentage_of_the_amount ________________\n\n    def test_a_discount_is_a_percentage_of_the_amount() -> None:\n>       assert apply_discount(200.0, 10.0) == 180.0\nE       assert 190.0 == 180.0\nE        +  where 190.0 = apply_discount(200.0, 10.0)\n\ntest_pricing.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED test_pricing.py::test_a_discount_is_a_percentage_of_the_amount - asser...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 1 passed\n"
       },
       "error": null,
-      "started_at": "2026-11-20T04:24:31.899346Z",
-      "finished_at": "2026-11-20T04:24:32.340431Z",
+      "started_at": "2026-11-20T16:19:34.219421Z",
+      "finished_at": "2026-11-20T16:19:34.577682Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
@@ -60,7 +60,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "8b8bf4d965afff6f134dc35e9771e7cd9625a718a6e306b20089108fac7f84bc"
     },
     {
       "step_key": "read_sources#1",
@@ -68,14 +68,14 @@
       "attempt": 1,
       "status": "ok",
       "args": {
-        "repo": "/tmp/fix-tests/repo"
+        "repo": "C:\\fix-tests\\repo"
       },
       "result": {
         "pricing.py": "def subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price + quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - percent\n"
       },
       "error": null,
-      "started_at": "2026-11-20T04:24:32.346672Z",
-      "finished_at": "2026-11-20T04:24:32.347326Z",
+      "started_at": "2026-11-20T16:19:34.578676Z",
+      "finished_at": "2026-11-20T16:19:34.579043Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
@@ -91,7 +91,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "8bcf2f288c7c4f935e257b8f348cb01a5ff5508a5e353355d2892e6cb5fdaf9a"
     },
     {
       "step_key": "ask_model#1",
@@ -110,11 +110,11 @@
       "error": {
         "type": "TimeoutError",
         "message": "model timed out",
-        "traceback": "Traceback (most recent call last):\n  File \"<cuaderna>\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"<cuaderna>\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<cuaderna>\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.TimeoutError: model timed out\n",
+        "traceback": "Traceback (most recent call last):\n  File \"C:\\cuaderna\\src\\cuaderna\\_recording.py\", line 121, in execute_step\n    await definition.invoke(*fresh.args, **fresh.kwargs)\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 76, in faulted\n    return await self._apply(fault, underlying, attempt, served, args, kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\cuaderna\\src\\cuaderna\\_rerun.py\", line 98, in _apply\n    raise error_class(fault.error_message)\ncuaderna._rerun.TimeoutError: model timed out\n",
         "terminal": false
       },
-      "started_at": "2026-11-20T04:24:32.350472Z",
-      "finished_at": "2026-11-20T04:24:32.351311Z",
+      "started_at": "2026-11-20T16:19:34.579856Z",
+      "finished_at": "2026-11-20T16:19:34.580269Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.fault": {
@@ -137,7 +137,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "09adfc72f9ca6875a420e416d27bbe65b5c33676877a6af41d25629651b44883"
     },
     {
       "step_key": "ask_model#1",
@@ -157,8 +157,8 @@
         "content": "# pricing.py\ndef subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price * quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - amount * percent / 100\n"
       },
       "error": null,
-      "started_at": "2026-11-20T04:24:33.358718Z",
-      "finished_at": "2026-11-20T04:24:33.358847Z",
+      "started_at": "2026-11-20T16:19:35.586187Z",
+      "finished_at": "2026-11-20T16:19:35.586443Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.reuse": {
@@ -179,7 +179,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "c38ef8d024c44636cc0b273958f9600498f51612745f32274ec8f35d51504e10"
     },
     {
       "step_key": "write_file#1",
@@ -191,12 +191,12 @@
           "content": "# pricing.py\ndef subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price * quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - amount * percent / 100\n",
           "path": "pricing.py"
         },
-        "repo": "/tmp/fix-tests/repo"
+        "repo": "C:\\fix-tests\\repo"
       },
       "result": null,
       "error": null,
-      "started_at": "2026-11-20T04:24:33.368672Z",
-      "finished_at": "2026-11-20T04:24:33.369452Z",
+      "started_at": "2026-11-20T16:19:35.588681Z",
+      "finished_at": "2026-11-20T16:19:35.589983Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
@@ -212,7 +212,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "2f619a94e6cb3a50322e1dbe3440bf2816ed690455d5e045293dc89783c6e708"
     },
     {
       "step_key": "run_tests#2",
@@ -220,15 +220,15 @@
       "attempt": 1,
       "status": "ok",
       "args": {
-        "repo": "/tmp/fix-tests/repo"
+        "repo": "C:\\fix-tests\\repo"
       },
       "result": {
         "passed": true,
         "output": "..                                                                       [100%]\n2 passed\n"
       },
       "error": null,
-      "started_at": "2026-11-20T04:24:33.372064Z",
-      "finished_at": "2026-11-20T04:24:33.770222Z",
+      "started_at": "2026-11-20T16:19:35.591430Z",
+      "finished_at": "2026-11-20T16:19:35.880875Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
@@ -244,7 +244,7 @@
           "approval": null
         }
       },
-      "chain_hash": null
+      "chain_hash": "6089dafe2e67770044fda3cca462aa89a014062db2f8ba7aef1e21cf6e42c0b9"
     }
   ]
 }

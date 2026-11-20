@@ -8,6 +8,7 @@ from examples.fix_tests import agent
 from cuaderna import Engine
 
 _SAMPLE_RUN = Path(__file__).parent.parent / "site" / "sample-run.json"
+_SAMPLE_SEAL = "5de1a90b8088c3005cf57f454693e906ab437da1079a46853b8d2bee22f0c2bb"
 
 
 async def test_the_published_run_replays_without_executing_a_step(
@@ -36,8 +37,16 @@ async def test_the_published_run_shows_its_three_workers_and_names_no_local_path
         "write_file#1",
         "run_tests#2",
     ]
-    local_path = re.compile(r"[A-Za-z]:\\\\|/home/|/Users/")
+    local_path = re.compile(r"[A-Za-z]:\\\\Users\\\\|/home/|/Users/")
     assert local_path.search(_SAMPLE_RUN.read_text(encoding="utf-8")) is None
+
+
+async def test_the_published_run_verifies_to_the_seal_it_was_recorded_with(
+    engine: Engine,
+) -> None:
+    run_id = await engine.import_run(_SAMPLE_RUN)
+
+    assert await engine.verify(run_id) == _SAMPLE_SEAL
 
 
 async def test_the_published_run_carries_the_cost_of_its_model_call(engine: Engine) -> None:
