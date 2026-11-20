@@ -41,7 +41,7 @@ def run_seal(head: str, status: RunStatus, output_json: str | None, error_json: 
     return _digest(head + canonical_json(recorded))
 
 
-def verified_head(run_id: str, record: RunRecord, attempts: list[StepAttempt]) -> str:
+def verified_digest(run_id: str, record: RunRecord, attempts: list[StepAttempt]) -> str:
     head = first_link(record.name, record.input_json)
     for attempt in attempts:
         if attempt.chain_hash is None:
@@ -54,11 +54,18 @@ def verified_head(run_id: str, record: RunRecord, attempts: list[StepAttempt]) -
         if attempt.chain_hash != head:
             raise _tampered(run_id, attempt, "does not match its chain hash")
     if record.status in _FINISHED:
-        _check_seal(run_id, record, head)
+        return _checked_seal(run_id, record, head)
+    if record.seal is not None:
+        raise JournalTamperedError(
+            f"run {run_id!r} is {record.status.value} and carries the seal of a finished run",
+            run_id,
+            None,
+            None,
+        )
     return head
 
 
-def _check_seal(run_id: str, record: RunRecord, head: str) -> None:
+def _checked_seal(run_id: str, record: RunRecord, head: str) -> str:
     if record.seal is None:
         raise JournalTamperedError(
             f"run {run_id!r} is {record.status.value} and has no seal over its result",
@@ -74,6 +81,7 @@ def _check_seal(run_id: str, record: RunRecord, head: str) -> None:
             None,
             None,
         )
+    return expected
 
 
 def _tampered(run_id: str, attempt: StepAttempt, problem: str) -> JournalTamperedError:

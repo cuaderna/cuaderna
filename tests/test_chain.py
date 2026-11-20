@@ -8,7 +8,8 @@ from pydantic import JsonValue
 
 import cuaderna
 from cuaderna import Engine, JournalTamperedError, RunNotFoundError
-from cuaderna._chain import first_link, verified_head
+from cuaderna._chain import first_link, run_seal, verified_digest
+from cuaderna._records import RunStatus
 from cuaderna.storage import Storage
 from cuaderna.storage._migrations import pending_statements
 from cuaderna.storage._sqlite import SqliteStorage
@@ -60,7 +61,7 @@ def edit_journal(journal_path: Path, statement: str) -> None:
 async def head_of_unfinished_run(storage: Storage) -> str:
     record_of_run = await storage.get_run("run")
     assert record_of_run is not None
-    return verified_head("run", record_of_run, await storage.load_attempts("run"))
+    return verified_digest("run", record_of_run, await storage.load_attempts("run"))
 
 
 def blank_result(path: str, value: JsonValue) -> JsonValue:
@@ -76,11 +77,14 @@ async def test_a_run_verifies_and_returns_a_head(engine: Engine) -> None:
     assert await engine.verify("run-1") == head
 
 
-async def test_a_run_with_no_attempts_returns_the_first_link(engine: Engine) -> None:
+async def test_a_finished_run_with_no_attempts_returns_the_seal_over_the_first_link(
+    engine: Engine,
+) -> None:
     await engine.execute("empty", chain, [])
     record_of_run = await engine.run_record("empty")
+    head = first_link(record_of_run.name, record_of_run.input_json)
 
-    assert await engine.verify("empty") == first_link(record_of_run.name, record_of_run.input_json)
+    assert await engine.verify("empty") == run_seal(head, RunStatus.COMPLETED, "[]", None)
 
 
 async def test_runs_with_different_content_have_different_heads(engine: Engine) -> None:
@@ -166,6 +170,39 @@ async def test_a_forged_output_of_a_completed_run_is_found(
         None,
         None,
     )
+
+
+async def test_a_forged_output_with_a_recomputed_seal_changes_what_verify_returns(
+    engine: Engine, journal_path: Path
+) -> None:
+    await engine.execute("run-1", chain, ["a", "b"])
+    kept_outside_the_journal = await engine.verify("run-1")
+    forged_output = '["forged"]'
+    connection = sqlite3.connect(journal_path)
+    head = connection.execute(
+        "SELECT chain_hash FROM step_attempts ORDER BY id DESC LIMIT 1"
+    ).fetchone()[0]
+    connection.execute(
+        "UPDATE runs SET output_json = ?, seal = ?",
+        (forged_output, run_seal(head, RunStatus.COMPLETED, forged_output, None)),
+    )
+    connection.commit()
+    connection.close()
+
+    assert await engine.verify("run-1") != kept_outside_the_journal
+
+
+async def test_a_finished_run_set_back_to_running_is_found(
+    engine: Engine, journal_path: Path
+) -> None:
+    await engine.execute("run-1", chain, ["a", "b"])
+    connection = sqlite3.connect(journal_path)
+    connection.execute("UPDATE runs SET status = 'running'")
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(JournalTamperedError, match="seal"):
+        await engine.verify("run-1")
 
 
 async def test_removed_last_attempts_of_a_completed_run_are_found(
@@ -277,7 +314,7 @@ async def test_a_version_3_journal_keeps_recording_without_hashes(journal_path: 
     assert [attempt.chain_hash for attempt in attempts] == [None, None]
     assert record_of_run is not None
     with pytest.raises(JournalTamperedError, match="no chain hash"):
-        verified_head("run", record_of_run, attempts)
+        verified_digest("run", record_of_run, attempts)
 
 
 async def test_verifying_an_unknown_run_raises_what_cost_raises(engine: Engine) -> None:
