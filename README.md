@@ -14,7 +14,7 @@ Cuaderna is the layer underneath that code. It is not an agent and it is not a f
 - **Replay.** Any past run can be walked through step by step with the model responses it got at the time, without calling the model. A recorded run becomes a test.
 - **Cost limits.** Every model call a step annotates with its usage is stored with what it cost; a call that cannot be priced is marked unknown. A run has a budget and stops before its next step once the recorded cost reaches it, without losing what it did: give it a higher budget and it continues. Only costs a step reports are counted, and the call in flight can go over.
 - **Permissions and audit.** Every step call of a run that has a policy is checked against it before the step runs, a person can be asked first, and the journal records what ran under which rule and the name the approver gave; names are claims, not verified identities. The policy is not a sandbox. Running tools isolated from the machine is *not built yet.*
-- **Fault injection.** Recorded runs are used to test how an agent reacts to a tool that fails or a malformed response. *Not built yet.*
+- **Fault injection.** A recorded run can be run again with one step made to fail or to return something else, and the steps you list are answered from the recording, so the model is not called again. What the agent did about it is read from the journal and verdicts are yours: [fault injection](docs/faults.md). Forking a run from a step, delays, hangs and several faults at once are *not built yet.*
 
 ## A first run
 

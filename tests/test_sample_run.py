@@ -45,19 +45,26 @@ async def test_the_published_run_carries_the_cost_of_its_model_call(engine: Engi
 
     cost = await engine.cost(run_id)
 
-    assert cost.total_usd == Decimal("0.0001774")
+    assert cost.total_usd == Decimal("0.0001758")
     assert cost.unknown_attempts == 0
     assert [(attempt.step_key, attempt.basis) for attempt in cost.attempts] == [
         ("ask_model#1", "computed")
     ]
 
 
-async def test_the_published_run_audits_with_the_short_policy_hashes_it_was_recorded_with(
+async def test_the_published_run_audits_with_the_policy_it_was_recorded_under(
     engine: Engine,
 ) -> None:
     run_id = await engine.import_run(_SAMPLE_RUN)
 
     entries = await engine.audit(run_id)
 
-    assert entries
-    assert {len(entry.policy_hash or "") for entry in entries} == {12}
+    assert {entry.policy for entry in entries} == {"fix-tests-2"}
+    assert {len(entry.policy_hash or "") for entry in entries} == {64}
+    assert [entry.rules for entry in entries] == [
+        ("look",),
+        ("look",),
+        ("look",),
+        ("edit-source",),
+        ("look",),
+    ]
