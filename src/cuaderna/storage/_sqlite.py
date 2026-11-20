@@ -277,14 +277,17 @@ def _renew_lease(connection: sqlite3.Connection, lease: Lease, lease_seconds: fl
 def _record_attempt(connection: sqlite3.Connection, lease: Lease, attempt: StepAttempt) -> None:
     with _write_transaction(connection):
         cursor = connection.execute(
-            "SELECT name, input_json FROM runs WHERE run_id = ? AND lease_token = ? AND status = ?",
+            "SELECT name, input_json, experiment_json FROM runs "
+            "WHERE run_id = ? AND lease_token = ? AND status = ?",
             (lease.run_id, lease.token, RunStatus.RUNNING.value),
         )
         run_row = cursor.fetchone()
         if run_row is None:
             raise _lease_lost(lease)
         stored = replace(attempt, lease_token=lease.token)
-        chain_hash = _chain_hash_for(connection, lease.run_id, run_row[0], run_row[1], stored)
+        chain_hash = _chain_hash_for(
+            connection, lease.run_id, run_row[0], run_row[1], run_row[2], stored
+        )
         try:
             connection.execute(
                 f"INSERT INTO step_attempts (run_id, {_ATTEMPT_COLUMNS}) "
@@ -314,21 +317,33 @@ def _record_attempt(connection: sqlite3.Connection, lease: Lease, attempt: StepA
 
 
 def _chain_head(
-    connection: sqlite3.Connection, run_id: str, name: str, input_json: str
+    connection: sqlite3.Connection,
+    run_id: str,
+    name: str,
+    input_json: str,
+    experiment_json: str | None,
 ) -> str | None:
     last = connection.execute(
         "SELECT chain_hash FROM step_attempts WHERE run_id = ? ORDER BY id DESC LIMIT 1",
         (run_id,),
     ).fetchone()
     if last is None:
-        return first_link(name, input_json)
+        experiment = (
+            None if experiment_json is None else ExperimentMarker.from_json(experiment_json)
+        )
+        return first_link(name, input_json, experiment)
     return last[0]
 
 
 def _chain_hash_for(
-    connection: sqlite3.Connection, run_id: str, name: str, input_json: str, attempt: StepAttempt
+    connection: sqlite3.Connection,
+    run_id: str,
+    name: str,
+    input_json: str,
+    experiment_json: str | None,
+    attempt: StepAttempt,
 ) -> str | None:
-    head = _chain_head(connection, run_id, name, input_json)
+    head = _chain_head(connection, run_id, name, input_json, experiment_json)
     if head is None:
         return None
     return next_link(head, attempt)
@@ -432,7 +447,7 @@ def _import_run(
     with _write_transaction(connection):
         try:
             connection.execute(
-                f"INSERT INTO runs ({_RUN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+                f"INSERT INTO runs ({_RUN_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     record.run_id,
                     record.name,
@@ -445,6 +460,7 @@ def _import_run(
                     None if record.finished_at is None else _to_text(record.finished_at),
                     record.seal,
                     _now_text(),
+                    None if record.experiment is None else record.experiment.to_json(),
                 ),
             )
             connection.executemany(
@@ -486,12 +502,13 @@ def _finish_run(
 ) -> None:
     with _write_transaction(connection):
         run_row = connection.execute(
-            "SELECT name, input_json FROM runs WHERE run_id = ? AND lease_token = ? AND status = ?",
+            "SELECT name, input_json, experiment_json FROM runs "
+            "WHERE run_id = ? AND lease_token = ? AND status = ?",
             (lease.run_id, lease.token, RunStatus.RUNNING.value),
         ).fetchone()
         if run_row is None:
             raise _lease_lost(lease)
-        head = _chain_head(connection, lease.run_id, run_row[0], run_row[1])
+        head = _chain_head(connection, lease.run_id, run_row[0], run_row[1], run_row[2])
         seal = None if head is None else run_seal(head, status, output_json, error_json)
         cursor = connection.execute(
             "UPDATE runs SET status = ?, output_json = ?, error_json = ?, finished_at = ?, "

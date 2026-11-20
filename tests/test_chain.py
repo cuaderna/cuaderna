@@ -82,7 +82,7 @@ async def test_a_finished_run_with_no_attempts_returns_the_seal_over_the_first_l
 ) -> None:
     await engine.execute("empty", chain, [])
     record_of_run = await engine.run_record("empty")
-    head = first_link(record_of_run.name, record_of_run.input_json)
+    head = first_link(record_of_run.name, record_of_run.input_json, None)
 
     assert await engine.verify("empty") == run_seal(head, RunStatus.COMPLETED, "[]", None)
 
