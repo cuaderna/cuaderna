@@ -84,6 +84,23 @@ async def test_a_journal_from_a_newer_library_is_refused(tmp_path: Path) -> None
     await storage.close()
 
 
+async def test_a_journal_whose_version_was_reset_raises_the_library_error(tmp_path: Path) -> None:
+    path = tmp_path / "journal.db"
+    storage = SqliteStorage(path)
+    await storage.create_run("run", "fix_tests", "{}", None)
+    await storage.close()
+    connection = sqlite3.connect(path)
+    connection.execute("PRAGMA user_version = 0")
+    connection.close()
+    storage = SqliteStorage(path)
+
+    with pytest.raises(SchemaVersionError) as raised:
+        await storage.create_run("run-2", "fix_tests", "{}", None)
+
+    assert isinstance(raised.value.__cause__, sqlite3.OperationalError)
+    await storage.close()
+
+
 async def test_a_version_1_journal_is_migrated_in_place_and_keeps_its_attempts(
     tmp_path: Path,
 ) -> None:
@@ -109,7 +126,7 @@ async def test_a_version_1_journal_is_migrated_in_place_and_keeps_its_attempts(
         ("flaky_double#2", 1, None, None),
     ]
     connection = sqlite3.connect(path)
-    assert connection.execute("PRAGMA user_version").fetchone() == (4,)
+    assert connection.execute("PRAGMA user_version").fetchone() == (5,)
     assert connection.execute(
         "SELECT lease_token FROM step_attempts WHERE run_id = 'run-2'"
     ).fetchall() == [(lease.token,)]

@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from cuaderna._chain import first_link, next_link
-from cuaderna._errors import ApprovalNotPendingError, JournalConflictError, LeaseLostError
+from cuaderna._errors import (
+    ApprovalNotPendingError,
+    JournalConflictError,
+    LeaseLostError,
+    SchemaVersionError,
+)
 from cuaderna._records import (
     Approval,
     ApprovalAnswer,
@@ -155,8 +160,14 @@ def _switch_to_wal(connection: sqlite3.Connection) -> None:
 def _migrate(connection: sqlite3.Connection) -> None:
     with _write_transaction(connection):
         (current_version,) = connection.execute("PRAGMA user_version").fetchone()
-        for statement in pending_statements(current_version):
-            connection.execute(statement)
+        try:
+            for statement in pending_statements(current_version):
+                connection.execute(statement)
+        except sqlite3.OperationalError as error:
+            raise SchemaVersionError(
+                f"journal schema at version {current_version} cannot be brought to "
+                f"version {LATEST_VERSION}: {error}"
+            ) from error
         connection.execute(f"PRAGMA user_version = {LATEST_VERSION}")
 
 

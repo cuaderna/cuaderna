@@ -56,7 +56,7 @@ for entry in await engine.audit("fix-123"):
 
 ## Checking the journal was not edited
 
-`await engine.verify(run_id)` returns the head of the run's hash chain, or raises `JournalTamperedError` with `run_id`, `step_key` and `attempt` of the first attempt that does not match. Every attempt stores a hash that covers the attempt recorded before it and its own fields, so an edited, removed or reordered attempt breaks the chain from there on. Triggers in the journal also refuse any update or delete of an attempt, an approval request or its answer.
+`await engine.verify(run_id)` returns the head of the run's hash chain, or raises `JournalTamperedError` with `run_id`, `step_key` and `attempt` of the first attempt that does not match. Every attempt stores a hash that covers the attempt recorded before it and its own fields, so an edited, removed or reordered attempt breaks the chain from there on. Triggers in the journal also refuse any update or delete of an attempt, an approval request or its answer, and an `INSERT OR REPLACE` cannot rewrite an attempt or an answer; one that targets an existing approval request is ignored.
 
 - Keep the returned head somewhere outside the journal file, such as a commit or a ticket. Someone who can write the file can recompute the whole chain and drop the triggers, and removing the last attempts only moves the head.
 - The chain covers the attempts, not the final status and output of the run.
