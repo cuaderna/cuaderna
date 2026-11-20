@@ -62,7 +62,7 @@ def _failure(error: cuaderna.CuadernaError) -> str:
     return f"failed with {type(error).__name__}"
 
 
-async def _recorded_error_type(engine: Engine, run_id: str) -> str:
+async def recorded_error_type(engine: Engine, run_id: str) -> str:
     recorded_error = (await engine.run_record(run_id)).error_json or "{}"
     error_type = json.loads(recorded_error).get("type", "an error")
     if error_type != "StepFailedError":
@@ -87,7 +87,7 @@ async def _rerun_until_it_ends(
             for request in await engine.pending(run_id):
                 await engine.reject(request, by=_REJECTED_BY)
         except cuaderna.RunFailedError:
-            return f"failed with {await _recorded_error_type(engine, run_id)}"
+            return f"failed with {await recorded_error_type(engine, run_id)}"
         except (
             cuaderna.StepFailedError,
             cuaderna.ReplayDivergedError,
