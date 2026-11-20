@@ -278,13 +278,16 @@ async def _answer_pending(engine: cuaderna.Engine, options: _Options) -> None:
 def hide_local_paths(workdir: Path, _field: str, value: JsonValue) -> JsonValue:
     text = json.dumps(value)
     replacements = (
+        (Path(cuaderna.__file__).resolve().parent, "<cuaderna>"),
+        (Path(__file__).resolve().parent, "<example>"),
         (workdir / "repo", f"{_PUBLISHED_WORKDIR}/repo"),
         (workdir, _PUBLISHED_WORKDIR),
         (Path(sys.prefix), "<venv>"),
         (Path(sys.base_prefix), "<python>"),
     )
     for local_path, published_path in replacements:
-        text = text.replace(json.dumps(str(local_path))[1:-1], published_path)
+        as_written = re.escape(json.dumps(str(local_path))[1:-1])
+        text = re.sub(as_written, published_path, text, flags=re.IGNORECASE)
     return json.loads(text)
 
 

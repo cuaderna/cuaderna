@@ -104,7 +104,7 @@ uv run python examples/fix_tests/agent.py /tmp/fix-tests --export run.json
 
 The directory given on the command line is replaced by `/tmp/fix-tests` everywhere in the file, and the paths of the virtual environment and of the Python installation, which show up in pytest tracebacks, by `<venv>` and `<python>`. Everything else is there in plain text: the sources, the pytest output, what the model answered. The API key is read once at the start, stripped of surrounding whitespace and refused if it holds anything but printable characters, so a malformed key stops the command before a run starts. It is never an argument of a step, so it is not in the journal or in the file.
 
-[site/sample-run.json](../../site/sample-run.json) was written this way from one run and three processes: the first, with a budget of 0.00005 USD, was killed 0.4 seconds into its model call; the second, with the same budget, made the call again and was stopped by the budget; the third, with 0.01 USD, finished. `tests/test_sample_run.py` imports it and replays it against this agent, with no model and no repo.
+[site/sample-run.json](../../site/sample-run.json) was written this way from one run and three processes: the first, with a budget of 0.00005 USD, was killed during its model call; the second, with the same budget, made the call again and was stopped by the budget; the third, with 0.01 USD, finished. `tests/test_sample_run.py` imports it and replays it against this agent, with no model and no repo.
 
 ## What to look at in the code
 
@@ -113,3 +113,15 @@ The directory given on the command line is replaced by `/tmp/fix-tests` everywhe
 - `ask_model` calls `cuaderna.annotate` with what `cuaderna.usage.from_anthropic` or `from_ollama` makes of the response, right after it arrives and before parsing the answer, so a call that was paid for and then failed to parse still has its cost.
 - `write_file` writes the whole file, so repeating it is harmless. Which paths it may write is the policy's call, not the step's.
 - `fix_tests` is plain Python with a loop; the durability comes from the decorators on the steps, not from a separate workflow language.
+
+## Try faults on a recorded run
+
+[faults.json](faults.json) holds six faults for this agent: a model call that times out, a model that is down, a test run that cannot start, a wrong edit from the model, and two texts added to what the model reads. [experiments.py](experiments.py) runs them against a finished run of the agent, with the model call served from the recording and three trials of each fault:
+
+```
+uv run python -m examples.fix_tests.experiments --journal /tmp/fix-tests/journal.db --source fix-tests --workdir /tmp/fix-tests --out /tmp/fix-tests-experiments
+```
+
+`--workdir` is the directory the source run was made in, because its repo is where the steps that execute run again. `--trials` sets how many trials each fault gets. It runs a control first and stops if the control does not follow the recording. It prints one line per run with the fault, the trial, the step where it fired, where the run first had to execute something again, how many attempts came from the recording and how many executed, how the run ended, what it cost and what the injected text did. It then writes each run as a file in `--out`, with local paths hidden, and a `runs.json` index that [the run page](../../docs/run-page.md) reads.
+
+Faults that make the model run again need the same model access the source run had, for example `ANTHROPIC_API_KEY` for a run recorded with `--provider anthropic`. What the published recordings show is in [the run page](../../docs/run-page.md#the-experiments).

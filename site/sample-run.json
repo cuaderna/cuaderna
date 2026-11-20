@@ -16,8 +16,9 @@
       "rounds": 1
     },
     "error": null,
-    "created_at": "2026-11-19T22:31:16.868182Z",
-    "finished_at": "2026-11-19T22:31:23.777071Z"
+    "created_at": "2026-11-20T04:24:18.976272Z",
+    "finished_at": "2026-11-20T04:24:26.993065Z",
+    "seal": null
   },
   "attempts": [
     {
@@ -30,19 +31,19 @@
       },
       "result": {
         "passed": false,
-        "output": ".F\n================================== FAILURES ===================================\n________________ test_a_discount_is_a_percentage_of_the_amount ________________\n\n    def test_a_discount_is_a_percentage_of_the_amount() -> None:\n>       assert apply_discount(200.0, 10.0) == 180.0\nE       assert 190.0 == 180.0\nE        +  where 190.0 = apply_discount(200.0, 10.0)\n\ntest_pricing.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED test_pricing.py::test_a_discount_is_a_percentage_of_the_amount - asser...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 1 passed in 0.04s\n"
+        "output": ".F\n================================== FAILURES ===================================\n________________ test_a_discount_is_a_percentage_of_the_amount ________________\n\n    def test_a_discount_is_a_percentage_of_the_amount() -> None:\n>       assert apply_discount(200.0, 10.0) == 180.0\nE       assert 190.0 == 180.0\nE        +  where 190.0 = apply_discount(200.0, 10.0)\n\ntest_pricing.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED test_pricing.py::test_a_discount_is_a_percentage_of_the_amount - asser...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 1 passed\n"
       },
       "error": null,
-      "started_at": "2026-11-19T22:31:16.871383Z",
-      "finished_at": "2026-11-19T22:31:17.210125Z",
+      "started_at": "2026-11-20T04:24:18.979597Z",
+      "finished_at": "2026-11-20T04:24:19.454113Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
           "decision": "allow",
           "effect": "allow",
           "reason": "rule",
-          "policy": "fix-tests-1",
-          "policy_hash": "2fc98f284e4f",
+          "policy": "fix-tests-2",
+          "policy_hash": "6fc38da6de3a7c4cb8c02a1475c16643734f6f39d526ee9b0de98a410b347963",
           "rules": [
             "look"
           ],
@@ -64,16 +65,16 @@
         "pricing.py": "def subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price + quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - percent\n"
       },
       "error": null,
-      "started_at": "2026-11-19T22:31:17.219409Z",
-      "finished_at": "2026-11-19T22:31:17.219890Z",
+      "started_at": "2026-11-20T04:24:19.464535Z",
+      "finished_at": "2026-11-20T04:24:19.465116Z",
       "lease_token": 1,
       "annotations": {
         "cuaderna.authorization": {
           "decision": "allow",
           "effect": "allow",
           "reason": "rule",
-          "policy": "fix-tests-1",
-          "policy_hash": "2fc98f284e4f",
+          "policy": "fix-tests-2",
+          "policy_hash": "6fc38da6de3a7c4cb8c02a1475c16643734f6f39d526ee9b0de98a410b347963",
           "rules": [
             "look"
           ],
@@ -94,33 +95,33 @@
         "sources": {
           "pricing.py": "def subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price + quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - percent\n"
         },
-        "test_output": ".F\n================================== FAILURES ===================================\n________________ test_a_discount_is_a_percentage_of_the_amount ________________\n\n    def test_a_discount_is_a_percentage_of_the_amount() -> None:\n>       assert apply_discount(200.0, 10.0) == 180.0\nE       assert 190.0 == 180.0\nE        +  where 190.0 = apply_discount(200.0, 10.0)\n\ntest_pricing.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED test_pricing.py::test_a_discount_is_a_percentage_of_the_amount - asser...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 1 passed in 0.04s\n"
+        "test_output": ".F\n================================== FAILURES ===================================\n________________ test_a_discount_is_a_percentage_of_the_amount ________________\n\n    def test_a_discount_is_a_percentage_of_the_amount() -> None:\n>       assert apply_discount(200.0, 10.0) == 180.0\nE       assert 190.0 == 180.0\nE        +  where 190.0 = apply_discount(200.0, 10.0)\n\ntest_pricing.py:9: AssertionError\n=========================== short test summary info ===========================\nFAILED test_pricing.py::test_a_discount_is_a_percentage_of_the_amount - asser...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 1 passed\n"
       },
       "result": {
         "path": "pricing.py",
-        "content": "# pricing.py\ndef subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price * quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount * (1 - percent / 100)\n"
+        "content": "# pricing.py\ndef subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price * quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - amount * percent / 100\n"
       },
       "error": null,
-      "started_at": "2026-11-19T22:31:21.927483Z",
-      "finished_at": "2026-11-19T22:31:23.148359Z",
+      "started_at": "2026-11-20T04:24:24.277371Z",
+      "finished_at": "2026-11-20T04:24:26.267977Z",
       "lease_token": 2,
       "annotations": {
         "gen_ai.provider.name": "anthropic",
         "gen_ai.request.model": "claude-haiku-5-5",
         "gen_ai.response.model": "claude-haiku-5-5",
-        "gen_ai.response.id": "msg_011ChD5ZvSQEKn7YEGCHvfaH",
+        "gen_ai.response.id": "msg_011ChDYVMs7Wb6fePi3Nfigv",
         "gen_ai.response.finish_reasons": [
           "tool_use"
         ],
         "provider.usage": {
-          "input_tokens": 969,
+          "input_tokens": 963,
           "cache_creation_input_tokens": 0,
           "cache_read_input_tokens": 0,
           "cache_creation": {
             "ephemeral_5m_input_tokens": 0,
             "ephemeral_1h_input_tokens": 0
           },
-          "output_tokens": 161,
+          "output_tokens": 159,
           "output_tokens_details": {
             "thinking_tokens": 0
           },
@@ -128,8 +129,8 @@
           "inference_geo": "global",
           "speed": "standard"
         },
-        "gen_ai.usage.input_tokens": 969,
-        "gen_ai.usage.output_tokens": 161,
+        "gen_ai.usage.input_tokens": 963,
+        "gen_ai.usage.output_tokens": 159,
         "gen_ai.usage.cache_read.input_tokens": 0,
         "gen_ai.usage.cache_write.input_tokens": 0,
         "cuaderna.usage.conditions": {
@@ -138,17 +139,17 @@
           "inference_geo": "global"
         },
         "cuaderna.cost": {
-          "usd": "0.0001774",
+          "usd": "0.0001758",
           "basis": "computed",
           "price_table": "example-2026-11-19",
           "price_table_hash": "01ca3be7e2e9",
           "model": "claude-haiku-5-5",
           "variant": null,
           "parts": {
-            "input": "0.0000969",
+            "input": "0.0000963",
             "cache_read": "0",
             "cache_write": "0",
-            "output": "0.0000805",
+            "output": "0.0000795",
             "requests": "0"
           }
         },
@@ -156,8 +157,8 @@
           "decision": "allow",
           "effect": "allow",
           "reason": "rule",
-          "policy": "fix-tests-1",
-          "policy_hash": "2fc98f284e4f",
+          "policy": "fix-tests-2",
+          "policy_hash": "6fc38da6de3a7c4cb8c02a1475c16643734f6f39d526ee9b0de98a410b347963",
           "rules": [
             "look"
           ],
@@ -174,25 +175,25 @@
       "status": "ok",
       "args": {
         "edit": {
-          "content": "# pricing.py\ndef subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price * quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount * (1 - percent / 100)\n",
+          "content": "# pricing.py\ndef subtotal(prices: list[float], quantities: list[int]) -> float:\n    return sum(price * quantity for price, quantity in zip(prices, quantities, strict=True))\n\n\ndef apply_discount(amount: float, percent: float) -> float:\n    return amount - amount * percent / 100\n",
           "path": "pricing.py"
         },
         "repo": "/tmp/fix-tests/repo"
       },
       "result": null,
       "error": null,
-      "started_at": "2026-11-19T22:31:23.452462Z",
-      "finished_at": "2026-11-19T22:31:23.452975Z",
+      "started_at": "2026-11-20T04:24:26.623618Z",
+      "finished_at": "2026-11-20T04:24:26.624312Z",
       "lease_token": 3,
       "annotations": {
         "cuaderna.authorization": {
           "decision": "allow",
           "effect": "allow",
           "reason": "rule",
-          "policy": "fix-tests-1",
-          "policy_hash": "2fc98f284e4f",
+          "policy": "fix-tests-2",
+          "policy_hash": "6fc38da6de3a7c4cb8c02a1475c16643734f6f39d526ee9b0de98a410b347963",
           "rules": [
-            "edit-package"
+            "edit-source"
           ],
           "actor": "fix-tests-example",
           "approval": null
@@ -210,19 +211,19 @@
       },
       "result": {
         "passed": true,
-        "output": "..                                                                       [100%]\n2 passed in 0.02s\n"
+        "output": "..                                                                       [100%]\n2 passed\n"
       },
       "error": null,
-      "started_at": "2026-11-19T22:31:23.453743Z",
-      "finished_at": "2026-11-19T22:31:23.776155Z",
+      "started_at": "2026-11-20T04:24:26.625636Z",
+      "finished_at": "2026-11-20T04:24:26.991762Z",
       "lease_token": 3,
       "annotations": {
         "cuaderna.authorization": {
           "decision": "allow",
           "effect": "allow",
           "reason": "rule",
-          "policy": "fix-tests-1",
-          "policy_hash": "2fc98f284e4f",
+          "policy": "fix-tests-2",
+          "policy_hash": "6fc38da6de3a7c4cb8c02a1475c16643734f6f39d526ee9b0de98a410b347963",
           "rules": [
             "look"
           ],
