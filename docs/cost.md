@@ -28,7 +28,7 @@ cuaderna ships no prices. Providers change them by announcement, and an amount s
 }
 ```
 
-Token rates are USD per million tokens and request rates USD per thousand requests, written as strings so nothing goes through a float. A model is found by its exact provider and name, with the name in the response tried before the one that was requested. A variant replaces the whole set of rates when everything in its `when` holds: any fact the mapper found in the response (`service_tier`, `speed`, `inference_geo`), or `input_tokens_over` for long-context prices. The first variant that matches wins.
+Token rates are USD per million tokens and request rates USD per thousand requests, written as strings so nothing goes through a float. A model is found by its exact provider and name, with the name in the response tried before the one that was requested. A variant replaces the whole set of rates when everything in its `when` holds: any fact the mapper found in the response (`service_tier`, `speed`, `inference_geo`), or `input_tokens_over` for long-context prices. The first variant that matches wins. `PriceTable.load` reads at most `max_bytes` (1 MiB by default) and raises `PriceTableError` for a file that is larger, unreadable, not UTF-8 or not a price table.
 
 ```python
 prices = cuaderna.PriceTable.load("prices.json")

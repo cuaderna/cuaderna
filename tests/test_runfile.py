@@ -1,7 +1,8 @@
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import JsonValue
@@ -15,6 +16,8 @@ from cuaderna import (
     RunNotAvailableError,
     RunStatus,
 )
+from cuaderna._runfile import load_run_file
+from cuaderna.storage import Storage
 
 
 class Kill(BaseException):
@@ -197,3 +200,90 @@ async def test_a_file_that_is_not_a_known_run_file_is_refused(
         await engine.import_run(tmp_path / "run.json")
 
     assert await engine.runs() == []
+
+
+DEEP = b'{"a": ' + b"[" * 100_000 + b"]" * 100_000 + b"}"
+HUGE_INT = b'{"a": ' + b"9" * 5_000 + b"}"
+
+
+async def exported_document(engine: Engine, tmp_path: Path) -> dict[str, Any]:
+    await engine.execute("run-1", trip, ["a"])
+    await engine.export_run("run-1", tmp_path / "run.json")
+    document: dict[str, Any] = json.loads((tmp_path / "run.json").read_text(encoding="utf-8"))
+    return document
+
+
+def duplicate_the_attempt(document: dict[str, Any]) -> None:
+    document["attempts"].append(dict(document["attempts"][0]))
+
+
+HOSTILE_EDITS: dict[str, Callable[[dict[str, Any]], object]] = {
+    "attempt-2-to-the-70": lambda document: document["attempts"][0].update(attempt=2**70),
+    "attempt-zero": lambda document: document["attempts"][0].update(attempt=0),
+    "lease-token-2-to-the-70": lambda document: document["attempts"][0].update(lease_token=2**70),
+    "duplicate-attempts": duplicate_the_attempt,
+    "empty-run-id": lambda document: document["run"].update(run_id=""),
+    "empty-name": lambda document: document["run"].update(name=""),
+    "empty-step-key": lambda document: document["attempts"][0].update(step_key=""),
+    "nan": lambda document: document["run"].update(input={"x": float("nan")}),
+    "infinity": lambda document: document["attempts"][0].update(result=float("inf")),
+    "a-date-utc-cannot-hold": lambda document: document["run"].update(
+        created_at="9999-12-31T23:59:59-05:00"
+    ),
+}
+
+
+@pytest.mark.parametrize("edit", HOSTILE_EDITS.values(), ids=HOSTILE_EDITS.keys())
+async def test_a_hostile_edit_is_refused_as_a_run_file_error(
+    engine: Engine, other_engine: Engine, tmp_path: Path, edit: Callable[[dict[str, Any]], object]
+) -> None:
+    document = await exported_document(engine, tmp_path)
+    edit(document)
+    (tmp_path / "hostile.json").write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(RunFileError):
+        await other_engine.import_run(tmp_path / "hostile.json")
+
+    assert await other_engine.runs() == []
+
+
+@pytest.mark.parametrize("content", [DEEP, HUGE_INT, b"\xff"], ids=["deep", "huge-int", "utf-8"])
+async def test_a_hostile_file_is_refused_as_a_run_file_error(
+    engine: Engine, tmp_path: Path, content: bytes
+) -> None:
+    (tmp_path / "run.json").write_bytes(content)
+
+    with pytest.raises(RunFileError):
+        await engine.import_run(tmp_path / "run.json")
+
+
+async def test_a_file_one_byte_over_max_bytes_is_refused(
+    engine: Engine, other_engine: Engine, tmp_path: Path
+) -> None:
+    await exported_document(engine, tmp_path)
+    size = (tmp_path / "run.json").stat().st_size
+
+    with pytest.raises(RunFileError, match="limit"):
+        await other_engine.import_run(tmp_path / "run.json", max_bytes=size - 1)
+
+    assert await other_engine.import_run(tmp_path / "run.json", max_bytes=size) == "run-1"
+
+
+async def test_a_file_that_cannot_be_opened_is_refused_as_a_run_file_error(
+    engine: Engine, tmp_path: Path
+) -> None:
+    with pytest.raises(RunFileError):
+        await engine.import_run(tmp_path / "missing.json")
+
+
+async def test_a_failed_import_leaves_nothing_behind(
+    engine: Engine, other_engine: Engine, journal: Storage, tmp_path: Path
+) -> None:
+    await exported_document(other_engine, tmp_path)
+    record, attempts = load_run_file((tmp_path / "run.json").read_text(encoding="utf-8"), None)
+
+    with pytest.raises(JournalConflictError):
+        await journal.import_run(record, [*attempts, *attempts])
+
+    assert await engine.runs() == []
+    assert await journal.load_attempts("run-1") == []

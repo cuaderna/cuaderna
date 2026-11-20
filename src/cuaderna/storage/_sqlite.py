@@ -401,33 +401,33 @@ def _import_run(
                     _now_text(),
                 ),
             )
+            connection.executemany(
+                f"INSERT INTO step_attempts (run_id, {_ATTEMPT_COLUMNS}) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        record.run_id,
+                        attempt.step_key,
+                        attempt.name,
+                        attempt.attempt,
+                        attempt.status.value,
+                        attempt.args_hash,
+                        attempt.args_json,
+                        attempt.result_json,
+                        attempt.error_json,
+                        _to_text(attempt.started_at),
+                        _to_text(attempt.finished_at),
+                        attempt.lease_token,
+                        attempt.annotations_json,
+                        attempt.chain_hash,
+                    )
+                    for attempt in attempts
+                ],
+            )
         except sqlite3.IntegrityError as error:
             raise JournalConflictError(
-                f"run {record.run_id!r} is already in the journal"
+                f"run {record.run_id!r} cannot be imported: {error}"
             ) from error
-        connection.executemany(
-            f"INSERT INTO step_attempts (run_id, {_ATTEMPT_COLUMNS}) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    record.run_id,
-                    attempt.step_key,
-                    attempt.name,
-                    attempt.attempt,
-                    attempt.status.value,
-                    attempt.args_hash,
-                    attempt.args_json,
-                    attempt.result_json,
-                    attempt.error_json,
-                    _to_text(attempt.started_at),
-                    _to_text(attempt.finished_at),
-                    attempt.lease_token,
-                    attempt.annotations_json,
-                    attempt.chain_hash,
-                )
-                for attempt in attempts
-            ],
-        )
 
 
 def _finish_run(

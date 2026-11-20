@@ -223,3 +223,32 @@ def test_a_file_that_is_not_a_json_object_is_rejected(tmp_path: Path, text: str)
 
     with pytest.raises(cuaderna.PriceTableError):
         cuaderna.PriceTable.load(path)
+
+
+DEEP = b'{"a": ' + b"[" * 100_000 + b"]" * 100_000 + b"}"
+HUGE_INT = b'{"a": ' + b"9" * 5_000 + b"}"
+
+
+@pytest.mark.parametrize("content", [DEEP, HUGE_INT, b"\xff", b""])
+def test_a_hostile_file_is_rejected_as_a_price_table_error(tmp_path: Path, content: bytes) -> None:
+    path = tmp_path / "prices.json"
+    path.write_bytes(content)
+
+    with pytest.raises(cuaderna.PriceTableError):
+        cuaderna.PriceTable.load(path)
+
+
+def test_a_directory_is_rejected_as_a_price_table_error(tmp_path: Path) -> None:
+    with pytest.raises(cuaderna.PriceTableError):
+        cuaderna.PriceTable.load(tmp_path)
+
+
+def test_a_file_of_exactly_max_bytes_is_read(tmp_path: Path) -> None:
+    path = tmp_path / "prices.json"
+    content = json.dumps(table_document()).encode()
+    path.write_bytes(content)
+
+    cuaderna.PriceTable.load(path, max_bytes=len(content))
+
+    with pytest.raises(cuaderna.PriceTableError, match="limit"):
+        cuaderna.PriceTable.load(path, max_bytes=len(content) - 1)

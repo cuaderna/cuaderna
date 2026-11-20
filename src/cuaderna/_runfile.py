@@ -1,9 +1,10 @@
 import json
 from collections.abc import Callable
-from datetime import datetime
-from typing import Literal
+from datetime import UTC, datetime
+from math import isfinite
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, JsonValue, ValidationError
+from pydantic import AfterValidator, BaseModel, Field, JsonValue, model_validator
 
 from ._errors import RunFileError
 from ._records import AttemptStatus, RunRecord, RunStatus, StepAttempt
@@ -11,31 +12,44 @@ from ._serde import canonical_json, hash_arguments
 
 type Redact = Callable[[str, JsonValue], JsonValue]
 
+_SQLITE_MAX = 2**63 - 1
+
+
+def _fits_in_utc(moment: datetime) -> datetime:
+    try:
+        moment.astimezone(UTC)
+    except OverflowError as error:
+        raise ValueError(f"{moment} is out of range once converted to UTC") from error
+    return moment
+
+
+_Moment = Annotated[datetime, AfterValidator(_fits_in_utc)]
+
 
 class _RunSection(BaseModel):
-    run_id: str
-    name: str
+    run_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
     input: JsonValue
     code_version: str | None
     status: RunStatus
     output: JsonValue
     error: JsonValue
-    created_at: datetime
-    finished_at: datetime | None
+    created_at: _Moment
+    finished_at: _Moment | None
     seal: str | None = None
 
 
 class _AttemptSection(BaseModel):
-    step_key: str
+    step_key: str = Field(min_length=1)
     name: str
-    attempt: int
+    attempt: int = Field(ge=1, le=_SQLITE_MAX)
     status: AttemptStatus
     args: JsonValue
     result: JsonValue
     error: JsonValue
-    started_at: datetime
-    finished_at: datetime
-    lease_token: int | None
+    started_at: _Moment
+    finished_at: _Moment
+    lease_token: int | None = Field(ge=-_SQLITE_MAX - 1, le=_SQLITE_MAX)
     annotations: JsonValue
     chain_hash: str | None = None
 
@@ -44,6 +58,13 @@ class _RunFile(BaseModel):
     format: Literal["cuaderna.run/1"]
     run: _RunSection
     attempts: list[_AttemptSection]
+
+    @model_validator(mode="after")
+    def _attempts_are_unique(self) -> Self:
+        identities = {(section.step_key, section.attempt) for section in self.attempts}
+        if len(identities) != len(self.attempts):
+            raise ValueError("two attempts have the same step key and attempt number")
+        return self
 
 
 def dump_run_file(record: RunRecord, attempts: list[StepAttempt], redact: Redact | None) -> str:
@@ -92,8 +113,10 @@ def dump_run_file(record: RunRecord, attempts: list[StepAttempt], redact: Redact
 
 def load_run_file(text: str, as_run_id: str | None) -> tuple[RunRecord, list[StepAttempt]]:
     try:
-        document = _RunFile.model_validate_json(text)
-    except ValidationError as error:
+        document = _RunFile.model_validate(
+            json.loads(text, parse_constant=_refuse_constant, parse_float=_finite_float)
+        )
+    except (ValueError, RecursionError) as error:
         raise RunFileError(f"not a run file this library can read: {error}") from error
     run = document.run
     status = run.status
@@ -112,6 +135,17 @@ def load_run_file(text: str, as_run_id: str | None) -> tuple[RunRecord, list[Ste
         seal=run.seal,
     )
     return record, [_attempt(section) for section in document.attempts]
+
+
+def _refuse_constant(constant: str) -> float:
+    raise ValueError(f"{constant} is not JSON")
+
+
+def _finite_float(text: str) -> float:
+    number = float(text)
+    if not isfinite(number):
+        raise ValueError(f"{text} is not a finite number")
+    return number
 
 
 def _attempt(section: _AttemptSection) -> StepAttempt:
