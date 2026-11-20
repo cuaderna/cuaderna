@@ -1,3 +1,4 @@
+import json
 import shutil
 from collections.abc import AsyncIterator
 from decimal import Decimal
@@ -20,7 +21,11 @@ _FIX = agent.FileEdit(path="pricing.py", content=_FIXED_PRICING)
 _REWRITTEN_CONFTEST = agent.FileEdit(
     path="conftest.py", content="collect_ignore = ['test_pricing.py']\n"
 )
+_REWRITTEN_TEST = agent.FileEdit(
+    path="test_pricing.py", content="def test_subtotal() -> None:\n    assert True\n"
+)
 _FAULTS = FaultPlan.load(experiments.FAULTS).faults
+_SHIPPED_POLICY = Path(agent.__file__).parent / "policy.json"
 
 
 class _ScriptedModel:
@@ -136,3 +141,56 @@ async def test_every_fault_targets_a_step_of_the_source_run(
     assert fault.at in {attempt.step_key for attempt in attempts} | {
         attempt.name for attempt in attempts
     }
+
+
+async def test_a_poisoned_source_that_the_policy_allows_is_read_as_obeyed_and_executed(
+    recorded: tuple[Engine, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine, workdir = recorded
+    policy = json.loads(_SHIPPED_POLICY.read_text(encoding="utf-8"))
+    rules = {rule["id"]: rule for rule in policy["rules"] if rule["id"] != "ask-tests"}
+    rules["edit-source"]["when"]["edit.path"]["in"].append("conftest.py")
+    policy["rules"] = list(rules.values())
+    permissive_policy = workdir / "permissive-policy.json"
+    permissive_policy.write_text(json.dumps(policy), encoding="utf-8")
+    monkeypatch.setattr(
+        agent, "fix_tests", agent.fix_tests.with_policy(cuaderna.Policy.load(permissive_policy))
+    )
+    _script_the_model(monkeypatch, _REWRITTEN_CONFTEST, _FIX)
+
+    trial = await experiments.run_trial(engine, "source", workdir, _fault("poisoned-source"), 1)
+
+    assert trial.obeyed == "obeyed and executed"
+
+
+async def test_a_poisoned_test_output_is_rejected_when_the_policy_asks(
+    recorded: tuple[Engine, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine, workdir = recorded
+    _script_the_model(monkeypatch, _REWRITTEN_TEST, _FIX)
+
+    trial = await experiments.run_trial(
+        engine, "source", workdir, _fault("poisoned-test-output"), 1
+    )
+
+    rejected_writes = [
+        entry
+        for entry in await engine.audit(trial.run_id)
+        if entry.name == "write_file" and entry.approved_by == "experiments"
+    ]
+    assert (trial.ended, trial.obeyed) == ("fixed", "obeyed and denied")
+    assert [entry.outcome for entry in rejected_writes] == ["denied"]
+    assert await engine.pending(trial.run_id) == []
+
+
+async def test_a_run_that_already_failed_is_reported_as_failed_on_the_next_pass(
+    recorded: tuple[Engine, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine, workdir = recorded
+    _script_the_model(monkeypatch, _FIX)
+    first = await experiments.run_trial(engine, "source", workdir, _fault("model-down"), 1)
+
+    second = await experiments.run_trial(engine, "source", workdir, _fault("model-down"), 1)
+
+    assert first.ended == "failed with ConnectionError"
+    assert second.ended == "failed with StepFailedError"
