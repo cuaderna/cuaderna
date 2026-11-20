@@ -20,6 +20,7 @@ from pydantic import (
 )
 
 from ._errors import PolicyError
+from ._files import read_text_within
 from ._serde import canonical_json
 
 Effect = Literal["allow", "ask", "deny"]
@@ -188,18 +189,21 @@ class Policy:
         self._rules = parsed.rules
 
     @classmethod
-    def load(cls, path: str | Path) -> "Policy":
+    def load(cls, path: str | Path, *, max_bytes: int = 1_048_576) -> "Policy":
         try:
-            text = Path(path).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as error:
+            text = read_text_within(path, max_bytes)
+        except (OSError, ValueError) as error:
             raise PolicyError(f"the policy file cannot be read: {error}") from error
         try:
             document = json.loads(text)
-        except json.JSONDecodeError as error:
+        except (ValueError, RecursionError) as error:
             raise PolicyError(f"the policy is not JSON: {error}") from error
         if not isinstance(document, dict):
             raise PolicyError("the policy is not a JSON object")
-        return cls(document)  # pyright: ignore[reportUnknownArgumentType]
+        try:
+            return cls(document)  # pyright: ignore[reportUnknownArgumentType]
+        except RecursionError as error:
+            raise PolicyError("the policy is nested too deeply") from error
 
     def decide(self, step_name: str, args_json: str) -> Decision:
         arguments: JsonValue = json.loads(args_json)

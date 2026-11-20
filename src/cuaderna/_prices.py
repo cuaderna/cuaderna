@@ -18,6 +18,7 @@ from pydantic import (
 )
 
 from ._errors import PriceTableError
+from ._files import read_text_within
 from ._serde import canonical_json
 
 _TOKENS_PER_RATE = Decimal(1_000_000)
@@ -140,15 +141,21 @@ class PriceTable:
         self._prices_by_name = prices_by_name
 
     @classmethod
-    def load(cls, path: str | Path) -> "PriceTable":
-        text = Path(path).read_text(encoding="utf-8")
+    def load(cls, path: str | Path, *, max_bytes: int = 1_048_576) -> "PriceTable":
+        try:
+            text = read_text_within(path, max_bytes)
+        except (OSError, ValueError) as error:
+            raise PriceTableError(f"the price table file cannot be read: {error}") from error
         try:
             document = json.loads(text)
-        except json.JSONDecodeError as error:
+        except (ValueError, RecursionError) as error:
             raise PriceTableError(f"the price table is not JSON: {error}") from error
         if not isinstance(document, dict):
             raise PriceTableError("the price table is not a JSON object")
-        return cls(document)  # pyright: ignore[reportUnknownArgumentType]
+        try:
+            return cls(document)  # pyright: ignore[reportUnknownArgumentType]
+        except RecursionError as error:
+            raise PriceTableError("the price table is nested too deeply") from error
 
     def price(self, annotations: Mapping[str, JsonValue]) -> CallCost | UnknownCost:
         call = _read_call(annotations)

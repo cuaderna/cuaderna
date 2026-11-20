@@ -269,3 +269,27 @@ def test_the_hash_follows_the_content_and_not_the_layout() -> None:
     assert len(original.content_hash) == 12
     assert original.content_hash == reordered.content_hash
     assert original.content_hash != edited.content_hash
+
+
+DEEP = b'{"a": ' + b"[" * 100_000 + b"]" * 100_000 + b"}"
+HUGE_INT = b'{"a": ' + b"9" * 5_000 + b"}"
+
+
+@pytest.mark.parametrize("content", [DEEP, HUGE_INT, b"\xff"])
+def test_a_hostile_file_is_rejected_as_a_policy_error(tmp_path: Path, content: bytes) -> None:
+    path = tmp_path / "policy.json"
+    path.write_bytes(content)
+
+    with pytest.raises(cuaderna.PolicyError):
+        cuaderna.Policy.load(path)
+
+
+def test_a_file_of_exactly_max_bytes_is_read(tmp_path: Path) -> None:
+    path = tmp_path / "policy.json"
+    content = json.dumps(policy_document(LOOK)).encode()
+    path.write_bytes(content)
+
+    assert cuaderna.Policy.load(path, max_bytes=len(content)).id == "fix-tests-1"
+
+    with pytest.raises(cuaderna.PolicyError, match="limit"):
+        cuaderna.Policy.load(path, max_bytes=len(content) - 1)

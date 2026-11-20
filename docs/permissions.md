@@ -34,6 +34,8 @@ except cuaderna.ApprovalRequiredError:
     await engine.execute("fix-123", fix_tests, "repo")
 ```
 
+`Policy.load` reads at most `max_bytes` (1 MiB by default) and raises `PolicyError` for a file that is larger, unreadable, not UTF-8 or not a policy.
+
 - A policy belongs to the run definition, and `with_policy(other)` swaps it. A run without one checks nothing. `cuaderna.now`, `random` and `new_id` are never checked, and no step you define may have a name starting with `cuaderna.`.
 - Every rule that names the step and whose `when` holds is a match. Any deny wins, then any ask, then any allow; no match denies. Order in the file means nothing. A rule whose `when` names an argument the call lacks, or whose value has the wrong type, cannot be evaluated and denies with the reason `unevaluable`.
 - A path in `when` is a parameter name with dots into objects, read from the arguments as stored. All paths must hold. Numbers in `equals` and `in` compare by value, so `100`, `100.0` and `1e2` are the same, and a boolean is never a number. Conditions: `equals`, `in` (a list), `glob` (`fnmatch`, where `*` also matches `/`) and `under` (a relative path that stays inside a directory).

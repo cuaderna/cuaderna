@@ -18,12 +18,14 @@ from ._errors import (
     PriceTableError,
     ReplayDivergedError,
     RunFailedError,
+    RunFileError,
     RunHeldError,
     RunMismatchError,
     RunNotAvailableError,
     RunNotFoundError,
     StepMismatchError,
 )
+from ._files import read_text_within
 from ._policy import Policy
 from ._prices import PriceTable
 from ._recording import Budget, RecordingContext
@@ -226,8 +228,13 @@ class Engine:
         text = dump_run_file(record, attempts, redact)
         await asyncio.to_thread(Path(path).write_text, text, encoding="utf-8", newline="\n")
 
-    async def import_run(self, path: str | Path, *, as_run_id: str | None = None) -> str:
-        text = await asyncio.to_thread(Path(path).read_text, encoding="utf-8")
+    async def import_run(
+        self, path: str | Path, *, as_run_id: str | None = None, max_bytes: int = 67_108_864
+    ) -> str:
+        try:
+            text = await asyncio.to_thread(read_text_within, path, max_bytes)
+        except (OSError, ValueError) as error:
+            raise RunFileError(f"the run file cannot be read: {error}") from error
         record, attempts = load_run_file(text, as_run_id)
         await self._storage.import_run(record, attempts)
         return record.run_id
