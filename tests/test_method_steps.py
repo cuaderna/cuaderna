@@ -51,6 +51,14 @@ async def test_a_method_can_be_a_step_and_its_instance_is_not_recorded(
     ]
 
 
+async def test_a_method_step_runs_on_the_instance_it_was_called_on(engine: Engine) -> None:
+    charges_before = shop.charges
+
+    await engine.execute("run", checkout)
+
+    assert shop.charges == charges_before + 1
+
+
 async def test_a_recorded_method_step_is_not_executed_again(engine: Engine) -> None:
     await engine.execute("run", checkout)
     charges_after_the_first_execution = shop.charges

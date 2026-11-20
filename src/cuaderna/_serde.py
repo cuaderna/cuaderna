@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import inspect
 import json
@@ -37,6 +38,15 @@ class Codec[R]:
             if name in self.parameters
         }
         return canonical_json(plain)
+
+    def copy_arguments(
+        self, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> inspect.BoundArguments:
+        bound = self.signature.bind(*args, **kwargs)
+        for name, value in bound.arguments.items():
+            if name in self.parameters:
+                bound.arguments[name] = copy.deepcopy(value)
+        return bound
 
     def load_arguments(self, arguments_json: str) -> inspect.BoundArguments:
         plain: dict[str, object] = json.loads(arguments_json)

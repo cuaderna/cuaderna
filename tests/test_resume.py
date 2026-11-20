@@ -25,6 +25,7 @@ class World:
         self.start = "a"
         self.crash_at: str | None = None
         self.failures_left = 0
+        self.attempts_saw: list[list[str]] = []
 
     def reach(self, place: str) -> None:
         if self.crash_at == place:
@@ -56,6 +57,13 @@ async def flaky(place: str) -> str:
 
 
 @cuaderna.step(max_attempts=3, backoff_seconds=0)
+async def consuming(places: list[str]) -> str:
+    world.attempts_saw.append(list(places))
+    places.pop()
+    raise ConnectionError("try again")
+
+
+@cuaderna.step(max_attempts=3, backoff_seconds=0)
 async def rejected(place: str) -> str:
     world.reach(place)
     raise TerminalError("bad request")
@@ -83,6 +91,11 @@ async def trip_that_survives_a_failure() -> str:
     except StepFailedError:
         return await visit("ferry")
     return "bridge"
+
+
+@cuaderna.run
+async def consuming_trip() -> str:
+    return await consuming(["a", "b", "c"])
 
 
 @cuaderna.run
@@ -134,6 +147,13 @@ async def test_a_step_is_retried_until_it_succeeds(engine: Engine, journal: Stor
         (2, AttemptStatus.ERROR),
         (3, AttemptStatus.OK),
     ]
+
+
+async def test_every_attempt_gets_the_arguments_as_they_were_recorded(engine: Engine) -> None:
+    with pytest.raises(StepFailedError):
+        await engine.execute("run", consuming_trip)
+
+    assert world.attempts_saw == [["a", "b", "c"]] * 3
 
 
 async def test_a_resume_continues_the_retries_where_they_stopped(
