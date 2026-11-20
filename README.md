@@ -12,8 +12,8 @@ Cuaderna is the layer underneath that code. It is not an agent and it is not a f
 
 - **Resume after a crash.** A run that dies picks up after the last recorded step. A recorded step is never executed again.
 - **Replay.** Any past run can be walked through step by step with the model responses it got at the time, without calling the model. A recorded run becomes a test.
-- **Cost limits.** Every model call is stored with what it cost. A run has a budget and stops when it reaches it, without losing what it did: give it a higher budget and it continues.
-- **Permissions and audit.** Every step call is checked against a policy before it runs, a person can be asked first, and the journal says what ran under which rule and who approved it. Running tools isolated from the machine is *not built yet.*
+- **Cost limits.** Every model call a step annotates with its usage is stored with what it cost; a call that cannot be priced is marked unknown. A run has a budget and stops before its next step once the recorded cost reaches it, without losing what it did: give it a higher budget and it continues. Only costs a step reports are counted, and the call in flight can go over.
+- **Permissions and audit.** Every step call of a run that has a policy is checked against it before the step runs, a person can be asked first, and the journal records what ran under which rule and the name the approver gave; names are claims, not verified identities. The policy is not a sandbox. Running tools isolated from the machine is *not built yet.*
 - **Fault injection.** Recorded runs are used to test how an agent reacts to a tool that fails or a malformed response. *Not built yet.*
 
 ## A first run
@@ -60,8 +60,9 @@ Kill it while it works and run it again: it continues from the last step it reco
 
 - [Writing steps and runs](docs/usage.md): steps, retries, resume, replay, exporting a run as a test case, and what the journal holds.
 - [Cost and budgets](docs/cost.md): the price table, the cost of each model call, stopping a run at a budget, and what the same run would have cost on another model.
-- [Permissions and audit](docs/permissions.md): the policy file, denials, asking a person, the audit entries and checking the journal was not edited.
+- [Permissions and audit](docs/permissions.md): the policy file, denials, asking a person, the audit entries and checking the journal with `verify`.
 - [The run page](docs/run-page.md): looking at a recorded run in the browser.
+- [Security](docs/security.md): what cuaderna protects and what it does not.
 
 ## Install
 

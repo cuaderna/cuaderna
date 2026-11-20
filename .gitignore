@@ -8,3 +8,12 @@ build/
 .pytest_cache/
 .ruff_cache/
 .coverage
+.env
+.env.*
+*.db
+*.db-wal
+*.db-shm
+.playwright-mcp/
+.serena/
+.claude/
+.hypothesis/

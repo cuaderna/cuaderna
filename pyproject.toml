@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -28,6 +28,9 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/cuaderna/cuaderna"
 Issues = "https://github.com/cuaderna/cuaderna/issues"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/README.md", "/LICENSE"]
 
 [dependency-groups]
 dev = [
