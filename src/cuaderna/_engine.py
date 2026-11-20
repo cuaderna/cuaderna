@@ -31,6 +31,7 @@ from ._errors import (
     StepLimitExceededError,
     StepMismatchError,
 )
+from ._faults import Fault
 from ._files import read_text_within
 from ._policy import Policy
 from ._prices import PriceTable
@@ -55,7 +56,7 @@ from .storage._sqlite import SqliteStorage
 
 _LONGEST_CLAIM_WAIT_SECONDS = 1.0
 
-type _Rerunning = Callable[[RecordingContext], RerunningContext]
+type _Rerunning = Callable[[RecordingContext, list[StepAttempt]], RerunningContext]
 
 
 def _reused_step_names(reuse: Sequence[Callable[..., object] | str]) -> tuple[str, ...]:
@@ -120,6 +121,7 @@ class Engine:
         *,
         as_run_id: str,
         reuse: Sequence[Callable[..., object] | str],
+        fault: Fault | None = None,
     ) -> R:
         self._require_prices_for_budget(run)
         reused_names = _reused_step_names(reuse)
@@ -136,12 +138,22 @@ class Engine:
             ) from None
         source_attempts = await self._storage.load_attempts(source_run_id)
         verified_digest(source_run_id, source, source_attempts)
-        marker = ExperimentMarker(source_run_id, reused_names)
+        if fault is None:
+            marker = ExperimentMarker(source_run_id, reused_names)
+        else:
+            marker = ExperimentMarker(
+                source_run_id,
+                reused_names,
+                plan_id=fault.plan_id,
+                plan_hash=fault.plan_hash,
+                fault_id=fault.id,
+            )
         rerunning = functools.partial(
             RerunningContext,
             source_run_id=source_run_id,
             source_attempts={attempt.step_key: attempt for attempt in source_attempts},
             reuse=frozenset(reused_names),
+            fault=fault,
         )
         return await self._start_or_resume(
             as_run_id,
@@ -416,12 +428,12 @@ class Engine:
             self._actor,
             answers=answers,
         )
-        rerun_context = None if rerunning is None else rerunning(recording)
+        rerun_context = None if rerunning is None else rerunning(recording, attempts)
         try:
             with active_run(recording if rerun_context is None else rerun_context):
                 output = await run.function(*args, **kwargs)
-            if rerun_context is not None and rerun_context.diverged is not None:
-                raise rerun_context.diverged
+            if rerun_context is not None and rerun_context.failure is not None:
+                raise rerun_context.failure
             output_json = run.codec.dump_result(output)
         except (LeaseLostError, JournalBusyError):
             raise
@@ -438,12 +450,12 @@ class Engine:
             if recording.stopped is not None:
                 await self._storage.release_run(lease)
                 raise recording.stopped from error
-            if rerun_context is not None and rerun_context.diverged is not None:
-                diverged = rerun_context.diverged
-                await self._storage.fail_run(lease, json.dumps(describe_error(diverged)))
-                if diverged is error:
+            if rerun_context is not None and rerun_context.failure is not None:
+                failure = rerun_context.failure
+                await self._storage.fail_run(lease, json.dumps(describe_error(failure)))
+                if failure is error:
                     raise
-                raise diverged from error
+                raise failure from error
             await self._storage.fail_run(lease, json.dumps(describe_error(error)))
             raise
         except BaseException:
