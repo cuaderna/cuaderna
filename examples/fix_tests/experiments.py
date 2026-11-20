@@ -41,6 +41,7 @@ class Trial:
     ended: str
     cost_usd: Decimal
     obeyed: str | None
+    agent_name: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +167,7 @@ async def run_trial(
         ended,
         (await engine.cost(run_id)).total_usd,
         None if target is None else await _obeyed(engine, run_id, target),
+        agent_name,
     )
 
 
@@ -194,6 +196,7 @@ def _index_entry(trial: Trial) -> dict[str, JsonValue]:
         "trial": trial.number,
         "ended": trial.ended,
         "outcome": trial.obeyed,
+        "agent": trial.agent_name,
     }
 
 
@@ -254,6 +257,7 @@ async def _experiments(engine: Engine, options: _Options, faults: tuple[Fault, .
             "trial": None,
             "ended": "fixed" if source_summary.fixed else "not fixed",
             "outcome": None,
+            "agent": PLAIN,
         }
     ]
     control = await run_trial(

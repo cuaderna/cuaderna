@@ -279,6 +279,8 @@ test("an index with a field of the wrong type is invalid as a whole", () => {
     { trial: 1.5 },
     { ended: null },
     { outcome: 7 },
+    { agent: null },
+    { agent: 5 },
     { extra: "x" },
   ];
   for (const overrides of hostile) {
@@ -322,6 +324,26 @@ test("the picker lists the source, then the control, then experiments grouped by
     choices.map(({ group }) => group),
     ["Sample run", "Sample run", "bad-edit", "model-timeout", "model-timeout"],
   );
+});
+
+test("the runs of another agent come after the first agent's, in a group of their own", () => {
+  const entries = [
+    entry({ file: "e/g1.json", fault: "model-down", trial: 1, ended: "gave up", agent: "gives-up" }),
+    entry({ file: "e/d1.json", fault: "model-down", trial: 1, ended: "failed with OSError", agent: "agent" }),
+    entry({ file: "e/gc.json", kind: "control", fault: null, trial: null, agent: "gives-up" }),
+    entry({ file: "e/x1.json", fault: "model-down", trial: 1, ended: "fixed", agent: "__proto__" }),
+    entry({ file: "sample-run.json", kind: "source", fault: null, trial: null }),
+  ];
+  const choices = labels.pickerChoices(entries);
+  assert.deepEqual(
+    choices.map(({ file }) => file),
+    ["sample-run.json", "e/d1.json", "e/x1.json", "e/gc.json", "e/g1.json"],
+  );
+  assert.deepEqual(
+    choices.map(({ group }) => group),
+    ["Sample run", "model-down", "Agent __proto__", "The agent that gives up", "The agent that gives up"],
+  );
+  assert.equal(choices[4].label, "model-down, trial 1: gave up");
 });
 
 test("a picker label is text and never changes the file it opens", () => {
