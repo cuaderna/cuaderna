@@ -1,12 +1,15 @@
 import json
 from dataclasses import dataclass
+from decimal import Decimal
 
 from pydantic import JsonValue
 
 from ._audit import audit_entries
 from ._authorization import FAULT_KEY
+from ._cost import run_cost
 from ._errors import RunNotAvailableError
-from ._records import RunRecord, StepAttempt
+from ._records import RunRecord, RunStatus, StepAttempt
+from ._serde import load_error
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +23,10 @@ class Experiment:
     reused: int
     executed: int
     diverged_at: str | None
+    status: RunStatus
+    error_type: str | None
+    cost_usd: Decimal
+    unknown_cost_attempts: int
 
 
 def experiment_of(record: RunRecord, attempts: list[StepAttempt]) -> Experiment:
@@ -39,6 +46,7 @@ def experiment_of(record: RunRecord, attempts: list[StepAttempt]) -> Experiment:
             executed += 1
             if diverged_at is None and attempt.name in marker.reuse:
                 diverged_at = attempt.step_key
+    cost = run_cost(attempts)
     return Experiment(
         run_id=record.run_id,
         source_run_id=marker.source_run_id,
@@ -49,6 +57,10 @@ def experiment_of(record: RunRecord, attempts: list[StepAttempt]) -> Experiment:
         reused=reused,
         executed=executed,
         diverged_at=diverged_at,
+        status=record.status,
+        error_type=None if record.error_json is None else load_error(record.error_json)["type"],
+        cost_usd=cost.total_usd,
+        unknown_cost_attempts=cost.unknown_attempts,
     )
 
 
