@@ -3,15 +3,16 @@ import re
 from pathlib import Path
 
 import pytest
-from examples.fix_tests import agent
+from examples.fix_tests import agent, experiments, gives_up
 from pydantic import JsonValue
 
-from cuaderna import Engine, StepFailedError
+from cuaderna import Engine, ReplayDivergedError, StepFailedError
 
 _SITE = Path(__file__).parent.parent / "site"
 _INDEX: list[dict[str, JsonValue]] = json.loads((_SITE / "runs.json").read_text(encoding="utf-8"))
 _LOCAL_PATH = re.compile(r"[A-Za-z]:\\\\Users\\\\|/home/|/Users/")
 _FAILED_WITH = "failed with "
+_GAVE_UP = "gave up: "
 
 _FACTS_BY_FAULT = {
     "model-timeout": (("ask_model#1",), None, 1),
@@ -33,6 +34,20 @@ def _first_trial_of_each_fault() -> list[dict[str, JsonValue]]:
 
 def _published_files() -> list[Path]:
     return [_SITE / "sample-run.json", *sorted((_SITE / "experiments").glob("*.json"))]
+
+
+def _failures_of_the_first_agent() -> list[dict[str, JsonValue]]:
+    return [
+        entry
+        for entry in _INDEX
+        if entry["agent"] == experiments.PLAIN and str(entry["ended"]).startswith(_FAILED_WITH)
+    ]
+
+
+async def _replay(engine: Engine, run_id: str, entry: dict[str, JsonValue]) -> agent.Summary:
+    if entry["agent"] == experiments.GIVES_UP:
+        return await engine.replay(run_id, gives_up.fix_tests)
+    return await engine.replay(run_id, agent.fix_tests)
 
 
 def test_the_index_lists_exactly_the_published_runs() -> None:
@@ -68,13 +83,27 @@ async def test_each_published_run_replays_to_the_end_it_recorded_without_executi
 
     if ended.startswith(_FAILED_WITH):
         with pytest.raises(StepFailedError) as raised:
-            await engine.replay(run_id, agent.fix_tests)
+            await _replay(engine, run_id, entry)
         assert raised.value.error_type == ended.removeprefix(_FAILED_WITH)
+    elif ended.startswith(_GAVE_UP):
+        summary = await _replay(engine, run_id, entry)
+        assert isinstance(summary, gives_up.Summary)
+        assert summary.gave_up == ended.removeprefix(_GAVE_UP)
     else:
-        summary = await engine.replay(run_id, agent.fix_tests)
+        summary = await _replay(engine, run_id, entry)
         assert ended == "fixed"
         assert summary.fixed is True
     assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("entry", _failures_of_the_first_agent(), ids=_entry_id)
+async def test_a_failure_of_the_first_agent_replayed_against_the_agent_that_gives_up_diverges(
+    engine: Engine, entry: dict[str, JsonValue]
+) -> None:
+    run_id = await engine.import_run(_SITE / str(entry["file"]))
+
+    with pytest.raises(ReplayDivergedError, match="recorded as failed"):
+        await engine.replay(run_id, gives_up.fix_tests)
 
 
 @pytest.mark.parametrize("entry", _first_trial_of_each_fault(), ids=_entry_id)
