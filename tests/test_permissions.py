@@ -2,6 +2,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import suppress
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -297,7 +298,8 @@ async def last_authorization(engine: Engine) -> dict[str, Any]:
 async def ask_and_approve(engine: Engine, step_names: list[str], policy: Policy = ASKING) -> None:
     with pytest.raises(ApprovalRequiredError):
         await engine.execute("run-1", call.with_policy(policy), step_names)
-    await engine.approve("run-1", f"{step_names[-1]}#1", by="bob", note="ok")
+    [request] = await engine.pending()
+    await engine.approve(request, by="bob", note="ok")
 
 
 async def test_an_ask_stores_one_pending_request(actor_engine: Engine) -> None:
@@ -339,7 +341,8 @@ async def test_an_approved_step_runs_once_and_records_the_approval(actor_engine:
 async def test_a_rejected_step_never_runs_and_the_run_finishes(actor_engine: Engine) -> None:
     with pytest.raises(ApprovalRequiredError):
         await actor_engine.execute("run-1", call.with_policy(ASKING), ["write_file"], True)
-    await actor_engine.reject("run-1", "write_file#1", by="bob")
+    [request] = await actor_engine.pending()
+    await actor_engine.reject(request, by="bob")
     refusals.clear()
 
     assert await actor_engine.execute("run-1", call.with_policy(ASKING), ["write_file"], True)
@@ -358,7 +361,8 @@ async def test_an_answer_does_not_cover_other_arguments(actor_engine: Engine) ->
     sending = send.with_policy(ASKING)
     with pytest.raises(ApprovalRequiredError):
         await actor_engine.execute("run-1", sending)
-    await actor_engine.approve("run-1", "deliver#1", by="bob")
+    [first] = await actor_engine.pending()
+    await actor_engine.approve(first, by="bob")
     target["name"] = "b"
 
     with pytest.raises(ApprovalRequiredError):
@@ -370,17 +374,45 @@ async def test_an_answer_does_not_cover_other_arguments(actor_engine: Engine) ->
     target["name"] = "a"
 
 
+async def test_an_answer_goes_to_the_request_that_was_reviewed(actor_engine: Engine) -> None:
+    sending = send.with_policy(ASKING)
+    with pytest.raises(ApprovalRequiredError):
+        await actor_engine.execute("run-1", sending)
+    [reviewed] = await actor_engine.pending()
+    target["name"] = "b"
+    with pytest.raises(ApprovalRequiredError):
+        await actor_engine.execute("run-1", sending)
+    target["name"] = "a"
+
+    await actor_engine.approve(reviewed, by="bob")
+
+    [still_pending] = await actor_engine.pending()
+    assert still_pending.args_hash != reviewed.args_hash
+    assert "b" in still_pending.args_json
+
+
+async def test_an_answered_request_cannot_be_answered_again(actor_engine: Engine) -> None:
+    with pytest.raises(ApprovalRequiredError):
+        await actor_engine.execute("run-1", call.with_policy(ASKING), ["write_file"])
+    [request] = await actor_engine.pending()
+    await actor_engine.approve(request, by="bob")
+
+    with pytest.raises(ApprovalNotPendingError, match="no longer pending"):
+        await actor_engine.reject(request, by="carol")
+
+
 async def test_an_answer_needs_a_pending_request_and_a_name(actor_engine: Engine) -> None:
     with pytest.raises(ApprovalRequiredError):
         await actor_engine.execute("run-1", call.with_policy(ASKING), ["write_file"])
+    [request] = await actor_engine.pending()
     with pytest.raises(InvalidDefinitionError):
-        await actor_engine.approve("run-1", "write_file#1", by="")
+        await actor_engine.approve(request, by="")
     with pytest.raises(ApprovalNotPendingError):
-        await actor_engine.approve("run-1", "write_file#2", by="bob")
+        await actor_engine.approve(replace(request, step_key="write_file#2"), by="bob")
 
-    await actor_engine.approve("run-1", "write_file#1", by="bob")
+    await actor_engine.approve(request, by="bob")
     with pytest.raises(ApprovalNotPendingError):
-        await actor_engine.reject("run-1", "write_file#1", by="carol")
+        await actor_engine.reject(request, by="carol")
 
 
 async def test_a_pending_request_is_answered_from_another_engine(
@@ -391,7 +423,7 @@ async def test_a_pending_request_is_answered_from_another_engine(
     other = Engine(journal_path)
     try:
         [request] = await other.pending("run-1")
-        await other.approve("run-1", request.step_key, by="bob")
+        await other.approve(request, by="bob")
     finally:
         await other.close()
 
