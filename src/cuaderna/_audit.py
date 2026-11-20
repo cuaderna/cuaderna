@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import JsonValue
 
-from ._authorization import AUTHORIZATION_KEY
+from ._authorization import AUTHORIZATION_KEY, FAULT_KEY, REUSE_KEY
 from ._library import LIBRARY_STEPS
 from ._policy import Decision, Policy
 from ._records import AttemptStatus, StepAttempt
@@ -31,6 +31,8 @@ class AuditEntry:
     approved_at: datetime | None
     approval_note: str | None
     imported: bool
+    injected: str | None = None
+    reused: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +62,8 @@ def decisions_under(attempts: list[StepAttempt], policy: Policy) -> list[StepDec
 
 
 def _entry(attempt: StepAttempt, imported: bool) -> AuditEntry:
-    authorization = _authorization(attempt)
+    annotations = _annotations(attempt)
+    authorization = _object(annotations.get(AUTHORIZATION_KEY))
     approval = _object(authorization.get("approval"))
     decision = _decision(authorization.get("decision"))
     return AuditEntry(
@@ -82,14 +85,16 @@ def _entry(attempt: StepAttempt, imported: bool) -> AuditEntry:
         approved_at=_moment(approval.get("at")),
         approval_note=_text(approval.get("note")),
         imported=imported,
+        injected=_text(_object(annotations.get(FAULT_KEY)).get("fault_id")),
+        reused=REUSE_KEY in annotations,
     )
 
 
-def _authorization(attempt: StepAttempt) -> dict[str, JsonValue]:
+def _annotations(attempt: StepAttempt) -> dict[str, JsonValue]:
     if attempt.annotations_json is None:
         return {}
     annotations: dict[str, JsonValue] = json.loads(attempt.annotations_json)
-    return _object(annotations.get(AUTHORIZATION_KEY))
+    return annotations
 
 
 def _outcome(

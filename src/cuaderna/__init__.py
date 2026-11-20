@@ -31,6 +31,7 @@ from ._errors import (
     StepMismatchError,
     TerminalError,
 )
+from ._experiment import Experiment
 from ._faults import Fault, FaultPlan
 from ._library import new_id, now, random
 from ._policy import Decision, Policy
@@ -58,6 +59,7 @@ __all__ = [
     "CuadernaError",
     "Decision",
     "Engine",
+    "Experiment",
     "ExperimentMarker",
     "Fault",
     "FaultPlan",

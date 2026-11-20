@@ -31,6 +31,7 @@ from ._errors import (
     StepLimitExceededError,
     StepMismatchError,
 )
+from ._experiment import Experiment, experiment_of
 from ._faults import Fault
 from ._files import read_text_within
 from ._policy import Policy
@@ -299,6 +300,10 @@ class Engine:
         record = await self.run_record(run_id)
         attempts = await self._storage.load_attempts(run_id)
         return audit_entries(attempts, record.imported_at is not None)
+
+    async def experiment(self, run_id: str) -> Experiment:
+        record = await self.run_record(run_id)
+        return experiment_of(record, await self._storage.load_attempts(run_id))
 
     async def verify(self, run_id: str) -> str:
         record = await self.run_record(run_id)
