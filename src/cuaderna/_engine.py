@@ -1,7 +1,9 @@
 import asyncio
+import functools
 import json
 import os
 import time
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import NoReturn
@@ -36,19 +38,40 @@ from ._recording import Budget, RecordingContext
 from ._records import (
     ApprovalAnswer,
     ApprovalRequest,
+    ExperimentMarker,
     Lease,
     RunRecord,
     RunStatus,
     StepAttempt,
 )
 from ._replay import ReplayingContext
+from ._rerun import RerunningContext
 from ._run import RunDefinition, active_run
 from ._runfile import Redact, dump_run_file, load_run_file
 from ._serde import describe_error, hash_arguments, load_error
+from ._step import STEP_NAME_ATTRIBUTE
 from .storage import Storage
 from .storage._sqlite import SqliteStorage
 
 _LONGEST_CLAIM_WAIT_SECONDS = 1.0
+
+type _Rerunning = Callable[[RecordingContext], RerunningContext]
+
+
+def _reused_step_names(reuse: Sequence[Callable[..., object] | str]) -> tuple[str, ...]:
+    names: set[str] = set()
+    for item in reuse:
+        name = item if isinstance(item, str) else getattr(item, STEP_NAME_ATTRIBUTE, None)
+        if not isinstance(name, str):
+            raise InvalidDefinitionError(f"reuse takes step functions or step names, not {item!r}")
+        names.add(name)
+    return tuple(sorted(names))
+
+
+def _describe_experiment(marker: ExperimentMarker | None) -> str:
+    if marker is None:
+        return "an ordinary run"
+    return f"an experiment on run {marker.source_run_id!r} reusing {list(marker.reuse)}"
 
 
 def _write_run_file(path: Path, text: str) -> None:
@@ -85,15 +108,74 @@ class Engine:
     async def execute[**P, R](
         self, run_id: str, run: RunDefinition[P, R], /, *args: P.args, **kwargs: P.kwargs
     ) -> R:
+        self._require_prices_for_budget(run)
+        input_json = run.codec.dump_arguments(args, kwargs)
+        return await self._start_or_resume(run_id, run, input_json, None, None, *args, **kwargs)
+
+    async def rerun[R](
+        self,
+        source_run_id: str,
+        run: RunDefinition[..., R],
+        /,
+        *,
+        as_run_id: str,
+        reuse: Sequence[Callable[..., object] | str],
+    ) -> R:
+        self._require_prices_for_budget(run)
+        reused_names = _reused_step_names(reuse)
+        source = await self.run_record(source_run_id)
+        if source.name != run.name:
+            raise RunMismatchError(
+                f"run {source_run_id!r} was recorded as {source.name}, not as {run.name}"
+            )
+        try:
+            arguments = run.codec.load_arguments(source.input_json)
+        except ValueError:
+            raise RunMismatchError(
+                f"the recorded input of run {source_run_id!r} does not fit {run.name} now"
+            ) from None
+        source_attempts = await self._storage.load_attempts(source_run_id)
+        verified_digest(source_run_id, source, source_attempts)
+        marker = ExperimentMarker(source_run_id, reused_names)
+        rerunning = functools.partial(
+            RerunningContext,
+            source_run_id=source_run_id,
+            source_attempts={attempt.step_key: attempt for attempt in source_attempts},
+            reuse=frozenset(reused_names),
+        )
+        return await self._start_or_resume(
+            as_run_id,
+            run,
+            source.input_json,
+            marker,
+            rerunning,
+            *arguments.args,
+            **arguments.kwargs,
+        )
+
+    def _require_prices_for_budget[R](self, run: RunDefinition[..., R]) -> None:
         if run.budget_usd is not None and self._prices is None:
             raise InvalidDefinitionError(f"{run.name}: a budget needs an engine with a price table")
-        input_json = run.codec.dump_arguments(args, kwargs)
+
+    async def _start_or_resume[**P, R](
+        self,
+        run_id: str,
+        run: RunDefinition[P, R],
+        input_json: str,
+        marker: ExperimentMarker | None,
+        rerunning: _Rerunning | None,
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> R:
         give_up_at = None
         if self._claim_timeout_seconds is not None:
             give_up_at = time.monotonic() + self._claim_timeout_seconds
         lease = None
         while lease is None:
-            record = await self._storage.create_run(run_id, run.name, input_json, run.code_version)
+            record = await self._storage.create_run(
+                run_id, run.name, input_json, run.code_version, marker
+            )
             if (record.name, record.input_json) != (run.name, input_json):
                 raise RunMismatchError(
                     f"run {run_id!r} was started as {record.name} with input "
@@ -104,10 +186,16 @@ class Engine:
                 raise RunNotAvailableError(
                     f"run {run_id!r} was imported: it can be read and replayed, not executed"
                 )
-            if record.experiment is not None:
-                raise RunNotAvailableError(
-                    f"run {run_id!r} is an experiment on run "
-                    f"{record.experiment.source_run_id!r}: it is continued with rerun, not execute"
+            if record.experiment != marker:
+                if marker is None and record.experiment is not None:
+                    raise RunNotAvailableError(
+                        f"run {run_id!r} is an experiment on run "
+                        f"{record.experiment.source_run_id!r}: "
+                        "it is continued with rerun, not execute"
+                    )
+                raise RunMismatchError(
+                    f"run {run_id!r} is {_describe_experiment(record.experiment)}, "
+                    f"not {_describe_experiment(marker)}"
                 )
             if record.status is RunStatus.FAILED:
                 error_type = (
@@ -135,7 +223,7 @@ class Engine:
                     pause = min(pause, remaining)
                 await asyncio.sleep(pause)
         heartbeat = asyncio.create_task(self._keep_lease(lease))
-        driving = asyncio.ensure_future(self._drive(run, lease, *args, **kwargs))
+        driving = asyncio.ensure_future(self._drive(run, lease, rerunning, *args, **kwargs))
         try:
             await asyncio.wait({driving, heartbeat}, return_when=asyncio.FIRST_COMPLETED)
             if not driving.done():
@@ -290,7 +378,13 @@ class Engine:
             await self._storage.release_run(lease)
 
     async def _drive[**P, R](
-        self, run: RunDefinition[P, R], lease: Lease, /, *args: P.args, **kwargs: P.kwargs
+        self,
+        run: RunDefinition[P, R],
+        lease: Lease,
+        rerunning: _Rerunning | None,
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
     ) -> R:
         try:
             attempts = await self._storage.load_attempts(lease.run_id)
@@ -310,7 +404,7 @@ class Engine:
             claimed = cost_for_budget(attempts, self._prices)
             unknown = next((cost for cost in claimed.attempts if cost.usd is None), None)
             budget = Budget(lease.run_id, run.budget_usd, claimed.total_usd, unknown)
-        context = RecordingContext(
+        recording = RecordingContext(
             self._storage,
             lease,
             recorded,
@@ -322,9 +416,12 @@ class Engine:
             self._actor,
             answers=answers,
         )
+        rerun_context = None if rerunning is None else rerunning(recording)
         try:
-            with active_run(context):
+            with active_run(recording if rerun_context is None else rerun_context):
                 output = await run.function(*args, **kwargs)
+            if rerun_context is not None and rerun_context.diverged is not None:
+                raise rerun_context.diverged
             output_json = run.codec.dump_result(output)
         except (LeaseLostError, JournalBusyError):
             raise
@@ -338,17 +435,23 @@ class Engine:
             await self._storage.release_run(lease)
             raise
         except Exception as error:
-            if context.stopped is not None:
+            if recording.stopped is not None:
                 await self._storage.release_run(lease)
-                raise context.stopped from error
+                raise recording.stopped from error
+            if rerun_context is not None and rerun_context.diverged is not None:
+                diverged = rerun_context.diverged
+                await self._storage.fail_run(lease, json.dumps(describe_error(diverged)))
+                if diverged is error:
+                    raise
+                raise diverged from error
             await self._storage.fail_run(lease, json.dumps(describe_error(error)))
             raise
         except BaseException:
             await self._storage.release_run(lease)
             raise
-        if context.stopped is not None:
+        if recording.stopped is not None:
             await self._storage.release_run(lease)
-            raise context.stopped
+            raise recording.stopped
         await self._storage.complete_run(lease, output_json)
         return run.codec.load_result(output_json)
 
