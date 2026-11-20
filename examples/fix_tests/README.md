@@ -77,7 +77,7 @@ fixed: True, rounds: 1
 
 ## Let a person approve an edit
 
-The run carries the policy in [policy.json](policy.json). The look-only steps are allowed, `write_file` is allowed for the source files, and an edit to a test file needs a person. Nothing else is named, so anything else is denied. The sample repo is flat, with no package or tests directory, so the rule for source files is `under` the repo root and the rule for tests is a `glob` on `test_*`. Because a deny wins over an ask and an ask over an allow, the tests rule decides for those files.
+The run carries the policy in [policy.json](policy.json). The look-only steps are allowed and `write_file` is allowed only for the source file of the sample, `pricing.py`, by its exact name. A name with `test` in it in any spelling, and any `.ini`, `.cfg`, `.toml` or `.pth` file or `sitecustomize.py`, needs a person, because pytest would run or read it. Nothing else is named, so any other file, a new one included, is denied. Because a deny wins over an ask and an ask over an allow, a name that matches an ask rule is never allowed.
 
 When the model proposes an edit the policy denies, the run does not stop: the reason is appended to the pytest output the next `ask_model` call receives, so the model can try another file. That text is an argument of the step, so it is recorded and the run stays the same on resume.
 
@@ -90,6 +90,10 @@ approval needed for write_file#1 with {"edit":{"content":"...","path":"test_pric
 
 `y` approves it; anything else rejects it, and a rejection reaches the run as a denial that the model is told about. The answer is recorded under the name given with `--approver`, which is your OS user name by default, and the run continues in the same process. `--actor` (default `fix-tests-example`) is the name the engine records for every step the run executes. Both are recorded claims, not verified identities.
 
+## What running the tests means
+
+Running the tests runs code the model wrote: pytest imports the file it just wrote. It runs as your user, in a child process whose environment holds only a short list of names (`PATH`, the home and temp directories and what Python needs to start), so `ANTHROPIC_API_KEY` is not in it. There is no other isolation: the code can read your files and use the network. For a repo you do not trust, use a container or a throwaway machine.
+
 ## Export the run
 
 Add `--export run.json` to write the finished run as one file:
@@ -98,7 +102,7 @@ Add `--export run.json` to write the finished run as one file:
 uv run python examples/fix_tests/agent.py /tmp/fix-tests --export run.json
 ```
 
-The directory given on the command line is replaced by `/tmp/fix-tests` everywhere in the file, and the paths of the virtual environment and of the Python installation, which show up in pytest tracebacks, by `<venv>` and `<python>`. Everything else is there in plain text: the sources, the pytest output, what the model answered. The API key is read from the environment inside the step and is never an argument, so it is not in the journal or in the file.
+The directory given on the command line is replaced by `/tmp/fix-tests` everywhere in the file, and the paths of the virtual environment and of the Python installation, which show up in pytest tracebacks, by `<venv>` and `<python>`. Everything else is there in plain text: the sources, the pytest output, what the model answered. The API key is read once at the start, stripped of surrounding whitespace and refused if it holds anything but printable characters, so a malformed key stops the command before a run starts. It is never an argument of a step, so it is not in the journal or in the file.
 
 [site/sample-run.json](../../site/sample-run.json) was written this way from one run and three processes: the first, with a budget of 0.00005 USD, was killed 0.4 seconds into its model call; the second, with the same budget, made the call again and was stopped by the budget; the third, with 0.01 USD, finished. `tests/test_sample_run.py` imports it and replays it against this agent, with no model and no repo.
 

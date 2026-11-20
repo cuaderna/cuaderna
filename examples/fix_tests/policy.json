@@ -1,9 +1,14 @@
 {
   "format": "cuaderna.policy/1",
-  "id": "fix-tests-1",
+  "id": "fix-tests-2",
   "rules": [
     {"id": "look", "effect": "allow", "steps": ["run_tests", "read_sources", "ask_model"]},
-    {"id": "edit-package", "effect": "allow", "steps": ["write_file"], "when": {"edit.path": {"under": "."}}},
-    {"id": "edit-tests", "effect": "ask", "steps": ["write_file"], "when": {"edit.path": {"glob": "test_*"}}}
+    {"id": "edit-source", "effect": "allow", "steps": ["write_file"], "when": {"edit.path": {"in": ["pricing.py"]}}},
+    {"id": "ask-tests", "effect": "ask", "steps": ["write_file"], "when": {"edit.path": {"glob": "*[Tt][Ee][Ss][Tt]*"}}},
+    {"id": "ask-ini", "effect": "ask", "steps": ["write_file"], "when": {"edit.path": {"glob": "*.ini"}}},
+    {"id": "ask-cfg", "effect": "ask", "steps": ["write_file"], "when": {"edit.path": {"glob": "*.cfg"}}},
+    {"id": "ask-toml", "effect": "ask", "steps": ["write_file"], "when": {"edit.path": {"glob": "*.toml"}}},
+    {"id": "ask-pth", "effect": "ask", "steps": ["write_file"], "when": {"edit.path": {"glob": "*.pth"}}},
+    {"id": "ask-customize", "effect": "ask", "steps": ["write_file"], "when": {"edit.path": {"glob": "*customize.py"}}}
   ]
 }
