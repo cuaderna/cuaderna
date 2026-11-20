@@ -297,9 +297,9 @@ test("an index of more than 200 entries is invalid", () => {
 
 test("the picker lists the source, then the control, then experiments grouped by fault", () => {
   const entries = [
-    entry({ file: "e/t2.json", fault: "model-timeout", trial: 2, outcome: "fixed" }),
-    entry({ file: "e/b1.json", fault: "bad-edit", trial: 1, outcome: "failed" }),
-    entry({ file: "e/t1.json", fault: "model-timeout", trial: 1, outcome: null }),
+    entry({ file: "e/t2.json", fault: "model-timeout", trial: 2, ended: "fixed" }),
+    entry({ file: "e/b1.json", fault: "bad-edit", trial: 1, ended: "fixed", outcome: "ignored" }),
+    entry({ file: "e/t1.json", fault: "model-timeout", trial: 1, ended: "failed with OSError" }),
     entry({ file: "control.json", kind: "control", fault: null, trial: null }),
     entry({ file: "sample-run.json", kind: "source", fault: null, trial: null }),
   ];
@@ -313,8 +313,8 @@ test("the picker lists the source, then the control, then experiments grouped by
     [
       "what was recorded",
       "replayed with nothing changed",
-      "bad-edit, trial 1: failed",
-      "model-timeout, trial 1",
+      "bad-edit, trial 1: fixed, injected text ignored",
+      "model-timeout, trial 1: failed with OSError",
       "model-timeout, trial 2: fixed",
     ],
   );
@@ -322,6 +322,6 @@ test("the picker lists the source, then the control, then experiments grouped by
 
 test("a picker label is text and never changes the file it opens", () => {
   const [choice] = labels.pickerChoices([entry({ fault: "<img src=x onerror=alert(1)>", trial: null })]);
-  assert.equal(choice.label, "<img src=x onerror=alert(1)>");
+  assert.equal(choice.label, "<img src=x onerror=alert(1)>: t");
   assert.equal(choice.file, "experiments/a.json");
 });
