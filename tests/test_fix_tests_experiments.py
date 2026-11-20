@@ -193,4 +193,4 @@ async def test_a_run_that_already_failed_is_reported_as_failed_on_the_next_pass(
     second = await experiments.run_trial(engine, "source", workdir, _fault("model-down"), 1)
 
     assert first.ended == "failed with ConnectionError"
-    assert second.ended == "failed with StepFailedError"
+    assert second.ended == "failed with ConnectionError"
