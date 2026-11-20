@@ -41,6 +41,13 @@ def test_only_the_publish_job_can_mint_a_token() -> None:
     assert publish.index("id-token: write") > publish.index("\n  publish:")
 
 
+def test_the_publish_job_uploads_with_the_action_that_attests() -> None:
+    publish = (ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
+    publish_job = publish[publish.index("\n  publish:") :]
+    assert "uses: pypa/gh-action-pypi-publish@" in publish_job
+    assert "uv publish" not in publish_job
+
+
 def test_sdist_ships_only_the_allow_list() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     sdist = config["tool"]["hatch"]["build"]["targets"]["sdist"]
