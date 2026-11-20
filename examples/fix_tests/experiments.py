@@ -48,6 +48,7 @@ class _Options:
     workdir: Path
     out: Path
     trials: int
+    keep_paths: bool
 
 
 def _failure(error: cuaderna.CuadernaError) -> str:
@@ -229,12 +230,9 @@ async def _experiments(engine: Engine, options: _Options, plan: FaultPlan) -> No
     print(" | ".join(_COLUMNS))
     for trial in trials:
         print(_row(trial))
+    redact = None if options.keep_paths else partial(agent.hide_local_paths, options.workdir)
     for run_id in [options.source, *(trial.run_id for trial in trials)]:
-        await engine.export_run(
-            run_id,
-            options.out / f"{run_id}.json",
-            redact=partial(agent.hide_local_paths, options.workdir),
-        )
+        await engine.export_run(run_id, options.out / f"{run_id}.json", redact=redact)
     index.extend(_index_entry(trial) for trial in trials)
     (options.out / "runs.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
 
@@ -252,6 +250,14 @@ if __name__ == "__main__":
         "--out", type=Path, required=True, help="where the run files and runs.json go"
     )
     parser.add_argument("--trials", type=int, default=3)
+    parser.add_argument(
+        "--keep-paths",
+        action="store_true",
+        help=(
+            "export the values as recorded, so verify can check the file; "
+            "only where the paths are public"
+        ),
+    )
     arguments = parser.parse_args()
     asyncio.run(
         _main(
@@ -261,6 +267,7 @@ if __name__ == "__main__":
                 arguments.workdir,
                 arguments.out,
                 arguments.trials,
+                arguments.keep_paths,
             )
         )
     )
