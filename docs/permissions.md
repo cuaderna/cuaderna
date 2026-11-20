@@ -54,13 +54,15 @@ for entry in await engine.audit("fix-123"):
 
 `engine.evaluate(run_id, policy)` returns, as `StepDecision` objects with `step_key`, `name`, `args` and `decision`, what another policy would decide for each step call of a recorded run, without executing anything. It is not a prediction: a denial would have changed what the model did next.
 
-## Checking the journal was not edited
+## Checking the journal with verify
 
-`await engine.verify(run_id)` returns the head of the run's hash chain, or raises `JournalTamperedError` with `run_id`, `step_key` and `attempt` of the first attempt that does not match. Every attempt stores a hash that covers the attempt recorded before it and its own fields, so an edited, removed or reordered attempt breaks the chain from there on. Triggers in the journal also refuse any update or delete of an attempt, an approval request or its answer, and an `INSERT OR REPLACE` cannot rewrite an attempt or an answer; one that targets an existing approval request is ignored.
+`await engine.verify(run_id)` returns the head of the run's hash chain, or raises `JournalTamperedError` when something does not match. Every attempt stores a hash that covers the attempt recorded before it and its own fields. A finished run, completed or failed, also stores a seal that covers the head, its final status and its output or error. Triggers in the journal refuse any update or delete of an attempt, an approval request or its answer, and an `INSERT OR REPLACE` cannot rewrite an attempt or an answer; one that targets an existing approval request is ignored. Triggers are not a defence against someone who can write the file, which is what the points below are about.
 
-- Keep the returned head somewhere outside the journal file, such as a commit or a ticket. Someone who can write the file can recompute the whole chain and drop the triggers, and removing the last attempts only moves the head.
-- The chain covers the attempts, not the final status and output of the run.
-- Attempts recorded before this version have no hash, and their runs do not verify.
-- A run file exported with `redact=` does not verify, because the hashes cover the values as they were recorded. Run files written without it verify in another journal, also under `as_run_id`.
+- `verify` finds an attempt that was edited, reordered or removed from the middle. For a finished run it also finds a changed result and removed last attempts. The error carries `run_id`, `step_key` and `attempt` for an attempt, and `None` for the last two when the problem is the seal of the run.
+- The head names the content of a run, not its run id, so a run file imported in another journal, also under `as_run_id`, verifies to the same head.
+- The hashes have no key. Someone who can write the journal file can recompute every hash and the seal, and `verify` alone does not find that. To find it, keep the head that `verify` returns somewhere outside the journal file, such as a commit or a ticket, and compare it later.
+- An approval is covered only through the attempt it authorised. The request and its answer are not part of the chain.
+- A run that has not finished has no seal, so `verify` cannot see attempts removed from its end. Attempts and runs recorded before this version have no hash or no seal, and those runs do not verify.
+- A run file exported with `redact=` does not verify, because the hashes cover the values as they were recorded.
 
 Measured on the machine that recorded the [sample run](run-page.md): deciding on one of its step calls takes between 2 and 4 microseconds (median of 2,000 decisions per call), and verifying a run of 1,000 attempts takes about 8 milliseconds (median of 5).

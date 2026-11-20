@@ -134,6 +134,7 @@ _MIGRATIONS: tuple[tuple[str, ...], ...] = (
         END
         """,
     ),
+    ("ALTER TABLE runs ADD COLUMN seal TEXT",),
 )
 
 LATEST_VERSION = len(_MIGRATIONS)

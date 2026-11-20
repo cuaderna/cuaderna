@@ -197,7 +197,7 @@ async def test_a_version_4_journal_migrates_to_5_and_gets_the_replace_triggers(
     await storage.record_attempt(lease, attempt_for("deploy#1"))
 
     connection = sqlite3.connect(journal_path)
-    assert connection.execute("PRAGMA user_version").fetchone() == (5,)
+    assert connection.execute("PRAGMA user_version").fetchone() == (6,)
     with pytest.raises(sqlite3.IntegrityError, match="append-only"):
         connection.execute(
             "INSERT OR REPLACE INTO step_attempts (run_id, step_key, name, attempt, status, "
@@ -231,5 +231,5 @@ async def test_a_version_2_journal_migrates_to_3_with_its_attempts(
 
     assert [attempt.step_key for attempt in attempts] == ["step#1"]
     connection = sqlite3.connect(journal_path)
-    assert connection.execute("PRAGMA user_version").fetchone() == (5,)
+    assert connection.execute("PRAGMA user_version").fetchone() == (6,)
     connection.close()
