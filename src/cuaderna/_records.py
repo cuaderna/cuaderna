@@ -27,6 +27,7 @@ class RunRecord:
     created_at: datetime
     finished_at: datetime | None
     seal: str | None = None
+    imported_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

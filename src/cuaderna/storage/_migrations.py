@@ -135,6 +135,7 @@ _MIGRATIONS: tuple[tuple[str, ...], ...] = (
         """,
     ),
     ("ALTER TABLE runs ADD COLUMN seal TEXT",),
+    ("ALTER TABLE runs ADD COLUMN imported_at TEXT",),
 )
 
 LATEST_VERSION = len(_MIGRATIONS)

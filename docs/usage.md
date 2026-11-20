@@ -62,7 +62,7 @@ run_id = await other_engine.import_run("tests/cases/fix-123.json")
 assert await other_engine.replay(run_id, fix_tests) == 2
 ```
 
-`import_run` refuses a run id the journal already has unless `as_run_id=` gives it another one. A run imported unfinished can be read and replayed, never resumed.
+`import_run` refuses a run id the journal already has unless `as_run_id=` gives it another one. An imported run is marked with `imported_at` and can be read and replayed, never executed, whether the file said it finished or not.
 
 The journal and the run file hold everything in plain text: prompts, tool output, error messages, whatever a step received or returned, including a secret if one was passed as an argument. Read secrets from the environment inside the step instead of passing them around. Before publishing a run file, pass `redact=` to `export_run`, a function `(path, value) -> value` that is called with `"input"`, `"output"`, `"error"` and `"<step key>.args"`, `.result`, `.error` and `.annotations`, and read the result yourself.
 

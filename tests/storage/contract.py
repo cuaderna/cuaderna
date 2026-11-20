@@ -88,7 +88,10 @@ class StorageContract:
 
         await storage.import_run(record, attempts)
 
-        assert await storage.get_run("run") == record
+        stored = await storage.get_run("run")
+        assert stored is not None
+        assert stored.imported_at is not None
+        assert replace(stored, imported_at=None) == record
         assert await storage.load_attempts("run") == attempts
         assert await storage.claim_run("run", "worker-a", lease_seconds=60) is None
         with pytest.raises(JournalConflictError):

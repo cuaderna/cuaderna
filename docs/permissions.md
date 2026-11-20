@@ -65,5 +65,6 @@ for entry in await engine.audit("fix-123"):
 - An approval is covered only through the attempt it authorised. The request and its answer are not part of the chain.
 - A run that has not finished has no seal, so `verify` cannot see attempts removed from its end. Attempts and runs recorded before this version have no hash or no seal, and those runs do not verify.
 - A run file exported with `redact=` does not verify, because the hashes cover the values as they were recorded.
+- `execute` verifies the chain before it returns the stored output of a completed run and before it starts or resumes a run, and raises `JournalTamperedError` without finishing or failing the run. A run that came from `import_run` has `imported_at` set on its record, and `execute` refuses it whether it finished or not: it can be read and replayed, not executed. Its `audit` entries have `imported` set to `True`, because the authorizations in them come from a file whose author can recompute the hashes.
 
 Measured on the machine that recorded the [sample run](run-page.md): deciding on one of its step calls takes between 2 and 4 microseconds (median of 2,000 decisions per call), and verifying a run of 1,000 attempts takes about 8 milliseconds (median of 5).

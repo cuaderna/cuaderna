@@ -30,6 +30,7 @@ class AuditEntry:
     approved_by: str | None
     approved_at: datetime | None
     approval_note: str | None
+    imported: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,8 +41,8 @@ class StepDecision:
     decision: Decision
 
 
-def audit_entries(attempts: list[StepAttempt]) -> list[AuditEntry]:
-    return [_entry(attempt) for attempt in attempts]
+def audit_entries(attempts: list[StepAttempt], imported: bool) -> list[AuditEntry]:
+    return [_entry(attempt, imported) for attempt in attempts]
 
 
 def decisions_under(attempts: list[StepAttempt], policy: Policy) -> list[StepDecision]:
@@ -58,7 +59,7 @@ def decisions_under(attempts: list[StepAttempt], policy: Policy) -> list[StepDec
     return list(decisions.values())
 
 
-def _entry(attempt: StepAttempt) -> AuditEntry:
+def _entry(attempt: StepAttempt, imported: bool) -> AuditEntry:
     authorization = _authorization(attempt)
     approval = _object(authorization.get("approval"))
     decision = _decision(authorization.get("decision"))
@@ -80,6 +81,7 @@ def _entry(attempt: StepAttempt) -> AuditEntry:
         approved_by=_text(approval.get("by")),
         approved_at=_moment(approval.get("at")),
         approval_note=_text(approval.get("note")),
+        imported=imported,
     )
 
 
