@@ -185,7 +185,7 @@ class Policy:
             canonical_json(
                 parsed.model_dump(mode="json", by_alias=True, exclude_unset=True)
             ).encode()
-        ).hexdigest()[:12]
+        ).hexdigest()
         self._rules = parsed.rules
 
     @classmethod
